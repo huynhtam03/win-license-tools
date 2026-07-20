@@ -735,29 +735,69 @@ function Start-KMSRemovalProcess {
     return $log.ToString()
 }
 
-# 5.5 HAM GO BO MICROSOFT OFFICE
+# 5.5 HAM GO BO MICROSOFT OFFICE (GO PHAN MEM & GO BOKEY KICH HOAT DONG BO VOI THONG TIN QUET)
 function Start-OfficeUninstallProcess {
     $log = New-Object System.Text.StringBuilder
     $log.AppendLine("==================================================================================") | Out-Null
-    $log.AppendLine("              BAT DAU QUA TRINH GO CAI DAT MICROSOFT OFFICE                       ") | Out-Null
+    $log.AppendLine("     BAT DAU QUA TRINH GO CAI DAT & LAM SACH OFFICE / PROJECT / VISIO             ") | Out-Null
     $log.AppendLine("==================================================================================") | Out-Null
     $log.AppendLine("Thoi gian thuc hien : $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')") | Out-Null
     $log.AppendLine("Ten may tinh        : $env:COMPUTERNAME") | Out-Null
     $log.AppendLine("----------------------------------------------------------------------------------") | Out-Null
     $log.AppendLine() | Out-Null
 
+    # 1. DUA VAO KET QUA QUET (Get-OfficeActivation) DE LIET KE SAN PHAM CAN GO
+    $log.AppendLine("[BUOC 1] Dang doc ket qua quet giay phep (Get-OfficeActivation)...") | Out-Null
+    $scanList = Get-OfficeActivation
+    
+    if ($scanList.Count -gt 0) {
+        $log.AppendLine(" -> Phat hien $($scanList.Count) phien ban/giay phep Office/Project/Visio tu ket qua quet:") | Out-Null
+        foreach ($item in $scanList) {
+            $log.AppendLine("    * San pham : $($item.ProductName)") | Out-Null
+            $log.AppendLine("      Trang thai: $($item.Status)") | Out-Null
+            $log.AppendLine("      Kenh      : $($item.Channel)") | Out-Null
+            $log.AppendLine("      Nguon     : $($item.Source)") | Out-Null
+            $log.AppendLine("      --------------------------------------------------") | Out-Null
+        }
+    } else {
+        $log.AppendLine(" -> Khong tim thay giay phep Office/Project/Visio nao trong ket qua quet.") | Out-Null
+    }
+    $log.AppendLine() | Out-Null
+
+    # 2. GO PHAN MEM CAI DAT TRONG REGISTRY & CLICK-TO-RUN
+    $log.AppendLine("[BUOC 2] Dang tien hanh go bo phan mem cai dat tren he thong...") | Out-Null
+    
+    # 2.1 Click-To-Run Uninstaller
+    $c2rPaths = @(
+        "${env:ProgramFiles}\Common Files\Microsoft Shared\ClickToRun\OfficeClickToRun.exe",
+        "${env:ProgramFiles(x86)}\Common Files\Microsoft Shared\ClickToRun\OfficeClickToRun.exe"
+    )
+    foreach ($c2rPath in $c2rPaths) {
+        if (Test-Path $c2rPath) {
+            $log.AppendLine(" -> Dang chay trinh go sach Click-To-Run ($c2rPath)...") | Out-Null
+            try {
+                $p = Start-Process -FilePath $c2rPath -ArgumentList "scenario=uninstall forceuninstall=True displaylevel=False" -PassThru -NoNewWindow -ErrorAction SilentlyContinue
+                if ($p) {
+                    $p.WaitForExit(300000)
+                    $log.AppendLine(" -> Da thuc thi trinh go Click-To-Run. Ma thoat: $($p.ExitCode)") | Out-Null
+                }
+            } catch {
+                $log.AppendLine(" -> Loi khi chay Click-To-Run: $($_.Exception.Message)") | Out-Null
+            }
+        }
+    }
+
+    # 2.2 Registry Uninstall (MSI & Cac goi phan mem)
     $regUninstallPaths = @(
         "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
         "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
         "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
     )
     $installedApps = Get-ItemProperty -Path $regUninstallPaths -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName }
-    
-    $officeApps = @()
+    $officeRegApps = @()
     foreach ($app in $installedApps) {
         $name = $app.DisplayName
         if ((($name -like "*Microsoft Office*") -or ($name -like "*Microsoft 365*") -or ($name -like "*Microsoft Project*") -or ($name -like "*Microsoft Visio*")) -and 
-
             ($name -notlike "*Proof*") -and 
             ($name -notlike "*Language*") -and 
             ($name -notlike "*Database Engine*") -and 
@@ -768,76 +808,23 @@ function Start-OfficeUninstallProcess {
             ($name -notlike "*Teams*") -and
             ($name -notlike "*Update*") -and
             ($name -notlike "*Desktop App Support*")) {
-            
-            $officeApps += $app
+            $officeRegApps += $app
         }
     }
 
-    if ($officeApps.Count -eq 0) {
-        $log.AppendLine(" -> [THONG BAO] Khong phat hien thay phien ban Microsoft Office nao duoc cai dat.") | Out-Null
-        $log.AppendLine("==================================================================================") | Out-Null
-        return @{ Log = $log.ToString(); Count = 0 }
-    }
-
-    $log.AppendLine(" -> Phat hien $($officeApps.Count) san pham Office can go:") | Out-Null
-    foreach ($o in $officeApps) {
-        $log.AppendLine("    * $($o.DisplayName)") | Out-Null
-    }
-    $log.AppendLine() | Out-Null
-
-    $uninstalledCount = 0
-    
-    # Click-To-Run uninstaller
-    $c2rPath = "${env:ProgramFiles}\Common Files\Microsoft Shared\ClickToRun\OfficeClickToRun.exe"
-    if (-not (Test-Path $c2rPath)) {
-        $c2rPath = "${env:ProgramFiles(x86)}\Common Files\Microsoft Shared\ClickToRun\OfficeClickToRun.exe"
-    }
-
-    $hasC2R = $false
-    foreach ($app in $officeApps) {
-        if ($app.UninstallString -like "*ClickToRun*" -or (Test-Path $c2rPath)) {
-            $hasC2R = $true
-        }
-    }
-
-    if ($hasC2R -and (Test-Path $c2rPath)) {
-        $log.AppendLine("[+] Dang chay trinh go sach Click-To-Run tu dong...") | Out-Null
-        try {
-            $p = Start-Process -FilePath $c2rPath -ArgumentList "scenario=uninstall forceuninstall=True displaylevel=False" -PassThru -NoNewWindow -ErrorAction SilentlyContinue
-            if ($p) {
-                $p.WaitForExit(300000)
-                $log.AppendLine(" -> Da thuc thi trinh go Click-To-Run. Ma thoat: $($p.ExitCode)") | Out-Null
-                $uninstalledCount++
-            } else {
-                $log.AppendLine(" -> Khong the khoi chay trinh go Click-To-Run.") | Out-Null
-            }
-        } catch {
-            $log.AppendLine(" -> Loi khi chay Click-To-Run uninstaller: $($_.Exception.Message)") | Out-Null
-        }
-    }
-
-    # MSI and other uninstallation strings
-    foreach ($app in $officeApps) {
-        $stillExists = Get-ItemProperty -Path $app.PSPath -ErrorAction SilentlyContinue
-        if (-not $stillExists) {
-            $uninstalledCount++
-            continue
-        }
-
+    foreach ($app in $officeRegApps) {
         $unCmd = $app.QuietUninstallString
         $isQuiet = $true
         if ([string]::IsNullOrWhiteSpace($unCmd)) {
             $unCmd = $app.UninstallString
             $isQuiet = $false
         }
-
         if (-not [string]::IsNullOrWhiteSpace($unCmd)) {
-            $log.AppendLine("[+] Dang go thu cong ($($app.DisplayName))...") | Out-Null
+            $log.AppendLine(" -> Dang go goi Registry: $($app.DisplayName)...") | Out-Null
             try {
                 $exe = ""
                 $rawArgs = ""
                 $cleanUnCmd = $unCmd.Trim()
-
                 if ($cleanUnCmd -match '^\s*"([^"]+\.[eE][xX][eE])"\s*(.*)$') {
                     $exe = $matches[1]
                     $rawArgs = $matches[2]
@@ -848,18 +835,11 @@ function Start-OfficeUninstallProcess {
                     $exe = $cleanUnCmd
                     $rawArgs = ""
                 }
-
                 if ($exe -and (Test-Path $exe -ErrorAction SilentlyContinue)) {
                     $argList = if ([string]::IsNullOrWhiteSpace($rawArgs)) { "" } else { $rawArgs.Trim() }
-                    if (-not $isQuiet) {
-                        if ($exe -like "*msiexec.exe*") {
-                            if ($argList -notlike "*/qn*") {
-                                $argList = ($argList + " /qn /norestart").Trim()
-                            }
-                        }
+                    if (-not $isQuiet -and $exe -like "*msiexec.exe*") {
+                        if ($argList -notlike "*/qn*") { $argList = ($argList + " /qn /norestart").Trim() }
                     }
-                    $argList = $argList.Trim()
-
                     $p = if ([string]::IsNullOrWhiteSpace($argList)) {
                         Start-Process -FilePath $exe -PassThru -ErrorAction SilentlyContinue
                     } else {
@@ -870,20 +850,70 @@ function Start-OfficeUninstallProcess {
                     $p = Start-Process cmd.exe -ArgumentList "/c `"$cleanUnCmd`"" -PassThru -ErrorAction SilentlyContinue
                     if ($p) { $p.WaitForExit(180000) }
                 }
-                $log.AppendLine(" -> Da hoan tat go: $($app.DisplayName)") | Out-Null
-                $uninstalledCount++
-            } catch {
-                $log.AppendLine(" -> Loi khi go $($app.DisplayName): $($_.Exception.Message)") | Out-Null
-            }
+                $log.AppendLine("    Da hoan tat go Registry: $($app.DisplayName)") | Out-Null
+            } catch {}
+        }
+    }
+    $log.AppendLine() | Out-Null
+
+    # 3. GO BO TOAN BO GIAY PHEP SAN PHAM VA MAY CHU KMS QUA OSPP VA WMI
+    $log.AppendLine("[BUOC 3] Dang xoa sach tat ca Product Key va thong tin KMS cua Office / Project / Visio...") | Out-Null
+    
+    # 3.1 Xoa qua OSPP
+    $officePaths = @(
+        "${env:ProgramFiles}\Microsoft Office\Office16",
+        "${env:ProgramFiles(x86)}\Microsoft Office\Office16",
+        "${env:ProgramFiles}\Microsoft Office\Office15",
+        "${env:ProgramFiles(x86)}\Microsoft Office\Office15"
+    )
+    foreach ($path in $officePaths) {
+        $ospp = Join-Path $path "ospp.vbs"
+        if (Test-Path $ospp) {
+            $log.AppendLine(" -> Dang thuc thi OSPP tool ($ospp)...") | Out-Null
+            try { cscript.exe //NoLogo "$ospp" /remkms 2>&1 | Out-Null } catch {}
+            try {
+                $dstatusOut = cscript.exe //NoLogo "$ospp" /dstatus 2>&1
+                $keysToUninstall = @()
+                foreach ($line in $dstatusOut) {
+                    if ($line -match "Last 5 characters of installed product key:\s*([A-Za-z0-9]{5})") {
+                        $key5 = $matches[1]
+                        if ($key5 -and $keysToUninstall -notcontains $key5) {
+                            $keysToUninstall += $key5
+                        }
+                    }
+                }
+                foreach ($k5 in $keysToUninstall) {
+                    $log.AppendLine(" -> Dang go Product Key OSPP (5 ky tu cuoi: $k5)...") | Out-Null
+                    cscript.exe //NoLogo "$ospp" /unpkey:$k5 2>&1 | Out-Null
+                }
+            } catch {}
         }
     }
 
+    # 3.2 Xoa qua WMI SoftwareLicensingProduct (Cho tat ca cac san pham con lai)
+    try {
+        $wmiProducts = Get-CimInstance -ClassName SoftwareLicensingProduct -Filter "PartialProductKey is not null" -ErrorAction SilentlyContinue | Where-Object { 
+            $_.Name -like "*Office*" -or 
+            $_.Name -like "*Project*" -or 
+            $_.Name -like "*Visio*" -or 
+            $_.Description -like "*Office*" -or 
+            $_.Description -like "*Project*" -or 
+            $_.Description -like "*Visio*"
+        }
+        foreach ($p in $wmiProducts) {
+            $log.AppendLine(" -> Dang go khoa WMI san pham: $($p.Name)...") | Out-Null
+            try {
+                Invoke-CimMethod -InputObject $p -MethodName "UninstallProductKey" -ErrorAction SilentlyContinue | Out-Null
+            } catch {}
+        }
+    } catch {}
+
     $log.AppendLine() | Out-Null
     $log.AppendLine("==================================================================================") | Out-Null
-    $log.AppendLine("       HOAN TAT GO CAI DAT MICROSOFT OFFICE                                       ") | Out-Null
+    $log.AppendLine("       HOAN TAT GO CAI DAT VA DONG BO LAM SACH HE THONG                           ") | Out-Null
     $log.AppendLine("==================================================================================") | Out-Null
 
-    return @{ Log = $log.ToString(); Count = $uninstalledCount }
+    return @{ Log = $log.ToString(); Count = ($scanList.Count + $officeRegApps.Count) }
 }
 
 # 6. CHAY CHE DO DONG LENH (CLI)
