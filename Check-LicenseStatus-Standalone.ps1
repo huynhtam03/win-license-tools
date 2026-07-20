@@ -1153,16 +1153,27 @@ function Update-DashboardCards {
     }
 }
 
+# HELPER ASYNC UI DISPATCHER
+function Invoke-UIAsync {
+    param ([scriptblock]$Action)
+    [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke([Action]{
+        & $Action
+    }, [System.Windows.Threading.DispatcherPriority]::Background)
+}
+
 # EVENT BINDING
 $btnScan.Add_Click({
-    $txtLog.Text = "Dang thuc hien quet he thong xin vui long cho...`n"
     $btnScan.IsEnabled = $false
-    
-    $codeBlock = {
+    $txtLog.Text = "Dang thuc hien quet he thong xin vui long cho...`n"
+    Invoke-UIAsync {
         $win = Get-WindowsActivation
         $offices = Get-OfficeActivation
         $crack = Get-CrackDetection
         
+        $global:lastWinInfo = $win
+        $global:lastOfficeList = $offices
+        $global:lastCrackInfo = $crack
+
         $sb = New-Object System.Text.StringBuilder
         $sb.AppendLine("==================================================================================") | Out-Null
         $sb.AppendLine("                     KET QUA KIEM TRA BAN QUYEN & HE THONG                        ") | Out-Null
@@ -1203,117 +1214,50 @@ $btnScan.Add_Click({
         $sb.AppendLine() | Out-Null
         $sb.AppendLine("==================================================================================") | Out-Null
         
-        return @{ Win = $win; Office = $offices; Crack = $crack; Log = $sb.ToString() }
+        $txtLog.Text = $sb.ToString()
+        Update-DashboardCards -win $win -officeList $offices -crack $crack
+        $btnScan.IsEnabled = $true
     }
-    
-    $pipe = [System.Management.Automation.PowerShell]::Create().AddScript($codeBlock)
-    $async = $pipe.BeginInvoke()
-    
-    $timer = New-Object System.Windows.Threading.DispatcherTimer
-    $timer.Interval = [TimeSpan]::FromMilliseconds(200)
-    $timer.Add_Tick({
-        if ($async.IsCompleted) {
-            $timer.Stop()
-            $res = $pipe.EndInvoke($async)
-            $global:lastWinInfo = $res.Win
-            $global:lastOfficeList = $res.Office
-            $global:lastCrackInfo = $res.Crack
-            
-            $txtLog.Text = $res.Log
-            Update-DashboardCards -win $res.Win -officeList $res.Office -crack $res.Crack
-            $btnScan.IsEnabled = $true
-            $pipe.Dispose()
-        }
-    })
-    $timer.Start()
 })
 
 $btnRemoveKms.Add_Click({
-    $txtLog.Text = "Dang thuc hien go bo ban quyen KMS lau xin vui long cho...`n"
     $btnRemoveKms.IsEnabled = $false
-    
-    $codeBlock = { Start-KMSRemovalProcess }
-    $pipe = [System.Management.Automation.PowerShell]::Create().AddScript($codeBlock)
-    $async = $pipe.BeginInvoke()
-    
-    $timer = New-Object System.Windows.Threading.DispatcherTimer
-    $timer.Interval = [TimeSpan]::FromMilliseconds(200)
-    $timer.Add_Tick({
-        if ($async.IsCompleted) {
-            $timer.Stop()
-            $logOut = $pipe.EndInvoke($async)
-            $txtLog.Text = $logOut
-            $btnRemoveKms.IsEnabled = $true
-            $pipe.Dispose()
-        }
-    })
-    $timer.Start()
+    $txtLog.Text = "Dang thuc hien go bo ban quyen KMS lau xin vui long cho...`n"
+    Invoke-UIAsync {
+        $logOut = Start-KMSRemovalProcess
+        $txtLog.Text = $logOut
+        $btnRemoveKms.IsEnabled = $true
+    }
 })
 
 $btnUninstallCracks.Add_Click({
-    $txtLog.Text = "Dang thuc hien go bo phan mem crack xin vui long cho...`n"
     $btnUninstallCracks.IsEnabled = $false
-    
-    $codeBlock = { Start-CrackedAppsUninstallProcess }
-    $pipe = [System.Management.Automation.PowerShell]::Create().AddScript($codeBlock)
-    $async = $pipe.BeginInvoke()
-    
-    $timer = New-Object System.Windows.Threading.DispatcherTimer
-    $timer.Interval = [TimeSpan]::FromMilliseconds(200)
-    $timer.Add_Tick({
-        if ($async.IsCompleted) {
-            $timer.Stop()
-            $res = $pipe.EndInvoke($async)
-            $txtLog.Text = $res.Log
-            $btnUninstallCracks.IsEnabled = $true
-            $pipe.Dispose()
-        }
-    })
-    $timer.Start()
+    $txtLog.Text = "Dang thuc hien go bo phan mem crack xin vui long cho...`n"
+    Invoke-UIAsync {
+        $res = Start-CrackedAppsUninstallProcess
+        $txtLog.Text = $res.Log
+        $btnUninstallCracks.IsEnabled = $true
+    }
 })
 
 $btnUninstallOffice.Add_Click({
-    $txtLog.Text = "Dang thuc hien go bo Office / Project / Visio xin vui long cho...`n"
     $btnUninstallOffice.IsEnabled = $false
-    
-    $codeBlock = { Start-OfficeUninstallProcess }
-    $pipe = [System.Management.Automation.PowerShell]::Create().AddScript($codeBlock)
-    $async = $pipe.BeginInvoke()
-    
-    $timer = New-Object System.Windows.Threading.DispatcherTimer
-    $timer.Interval = [TimeSpan]::FromMilliseconds(200)
-    $timer.Add_Tick({
-        if ($async.IsCompleted) {
-            $timer.Stop()
-            $res = $pipe.EndInvoke($async)
-            $txtLog.Text = $res.Log
-            $btnUninstallOffice.IsEnabled = $true
-            $pipe.Dispose()
-        }
-    })
-    $timer.Start()
+    $txtLog.Text = "Dang thuc hien go bo Office / Project / Visio xin vui long cho...`n"
+    Invoke-UIAsync {
+        $res = Start-OfficeUninstallProcess
+        $txtLog.Text = $res.Log
+        $btnUninstallOffice.IsEnabled = $true
+    }
 })
 
 $btnCleanTemp.Add_Click({
-    $txtLog.Text = "Dang don dep he thong va reset cache mang xin vui long cho...`n"
     $btnCleanTemp.IsEnabled = $false
-    
-    $codeBlock = { Start-SystemAndNetworkCleanupProcess }
-    $pipe = [System.Management.Automation.PowerShell]::Create().AddScript($codeBlock)
-    $async = $pipe.BeginInvoke()
-    
-    $timer = New-Object System.Windows.Threading.DispatcherTimer
-    $timer.Interval = [TimeSpan]::FromMilliseconds(200)
-    $timer.Add_Tick({
-        if ($async.IsCompleted) {
-            $timer.Stop()
-            $logOut = $pipe.EndInvoke($async)
-            $txtLog.Text = $logOut
-            $btnCleanTemp.IsEnabled = $true
-            $pipe.Dispose()
-        }
-    })
-    $timer.Start()
+    $txtLog.Text = "Dang don dep he thong va reset cache mang xin vui long cho...`n"
+    Invoke-UIAsync {
+        $logOut = Start-SystemAndNetworkCleanupProcess
+        $txtLog.Text = $logOut
+        $btnCleanTemp.IsEnabled = $true
+    }
 })
 
 $btnActivateKey.Add_Click({
@@ -1321,36 +1265,21 @@ $btnActivateKey.Add_Click({
     if (-not [string]::IsNullOrWhiteSpace($keyInput)) {
         $cleanKey = $keyInput.Trim()
         $txtLog.Text = "Dang tien hanh kich hoat khoa ban quyen: $cleanKey ...`n"
-        
-        $codeBlock = {
-            param ($k)
+        $btnActivateKey.IsEnabled = $false
+        Invoke-UIAsync {
             $log = New-Object System.Text.StringBuilder
-            $log.AppendLine("Dang cai dat Product Key Windows: $k ...") | Out-Null
+            $log.AppendLine("Dang cai dat Product Key Windows: $cleanKey ...") | Out-Null
             try {
-                $res1 = cscript.exe //NoLogo "$env:windir\System32\slmgr.vbs" /ipk $k 2>&1
+                $res1 = cscript.exe //NoLogo "$env:windir\System32\slmgr.vbs" /ipk $cleanKey 2>&1
                 $log.AppendLine(" -> Ket qua slmgr /ipk: $($res1 -join ' ')") | Out-Null
                 $res2 = cscript.exe //NoLogo "$env:windir\System32\slmgr.vbs" /ato 2>&1
                 $log.AppendLine(" -> Ket qua slmgr /ato: $($res2 -join ' ')") | Out-Null
             } catch {
                 $log.AppendLine(" -> Loi khi kich hoat Windows: $($_.Exception.Message)") | Out-Null
             }
-            return $log.ToString()
+            $txtLog.Text = $log.ToString()
+            $btnActivateKey.IsEnabled = $true
         }
-        
-        $pipe = [System.Management.Automation.PowerShell]::Create().AddScript($codeBlock).AddArgument($cleanKey)
-        $async = $pipe.BeginInvoke()
-        
-        $timer = New-Object System.Windows.Threading.DispatcherTimer
-        $timer.Interval = [TimeSpan]::FromMilliseconds(200)
-        $timer.Add_Tick({
-            if ($async.IsCompleted) {
-                $timer.Stop()
-                $logOut = $pipe.EndInvoke($async)
-                $txtLog.Text = $logOut
-                $pipe.Dispose()
-            }
-        })
-        $timer.Start()
     }
 })
 
