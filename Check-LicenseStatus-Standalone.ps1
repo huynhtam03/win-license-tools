@@ -1,10 +1,10 @@
 <#
-    Check-LicenseStatus-Standalone.ps1 - Công cụ TẤT-CẢ-TRONG-MỘT (All-In-One Edition)
-    Bao gồm:
-    1. Kiểm tra bản quyền Windows & Microsoft Office.
-    2. Quét động các phần mềm bên thứ ba bị crack (MiniTool, Adobe, IDM, AutoCAD...).
-    3. GỠ CÀI ĐẶT TỰ ĐỘNG HÀNG LOẠT (Bulk/Batch Uninstall) các phần mềm bị crack.
-    4. Gỡ bỏ bản quyền KMS lậu (slmgr /ckms, /upk, /cpky), làm sạch file Hosts, gỡ bỏ tác vụ/dịch vụ bẻ khóa.
+    Check-LicenseStatus-Standalone.ps1 - Cong cu TAT-CA-TRONG-MOT (All-In-One Edition)
+    Bao gom:
+    1. Kiem tra ban quyen Windows & Microsoft Office.
+    2. Quet dong cac phan mem ben thu ba bi crack (MiniTool, Adobe, IDM, AutoCAD...).
+    3. GO CAI DAT TU DONG HANG LOAT (Bulk/Batch Uninstall) cac phan mem bi crack.
+    4. Go bo ban quyen KMS lau (slmgr /ckms, /upk, /cpky), lam sach file Hosts, go bo tac vu/dich vu be khoa.
 #>
 
 [CmdletBinding()]
@@ -14,36 +14,36 @@ param (
     [switch]$UninstallCracks
 )
 
-# 1. THIẾT LẬP THƯ VIỆN WPF
+# 1. THIET LAP THU VIEN WPF
 try {
     Add-Type -AssemblyName PresentationFramework
     Add-Type -AssemblyName PresentationCore
     Add-Type -AssemblyName WindowsBase
 } catch {}
 
-# 2. TỰ ĐỘNG NÂNG QUYỀN ADMINISTRATOR
+# 2. TU DONG NANG QUYEN ADMINISTRATOR
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host "========================================================" -ForegroundColor Yellow
-    Write-Host "CẢNH BÁO: Công cụ yêu cầu quyền Administrator!" -ForegroundColor Yellow
-    Write-Host "Đang mở cửa sổ PowerShell mới dưới quyền Administrator..." -ForegroundColor Yellow
+    Write-Host "CANH BAO: Cong cu yeu cau quyen Administrator!" -ForegroundColor Yellow
+    Write-Host "Dang mo cua so PowerShell moi duoi quyen Administrator..." -ForegroundColor Yellow
     Write-Host "========================================================" -ForegroundColor Yellow
     try {
         Start-Process powershell.exe -ArgumentList "-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-sta", "-File", "`"$PSCommandPath`"" -Verb RunAs
     } catch {
-        Write-Host "Lỗi: Không thể khởi chạy dưới quyền Administrator!" -ForegroundColor Red
+        Write-Host "Loi: Khong the khoi chay duoi quyen Administrator!" -ForegroundColor Red
         Start-Sleep -Seconds 3
     }
     Exit
 }
 
-# 3. CÁC HÀM QUÉT BẢN QUYỀN VÀ PHÁT HIỆN BẺ KHÓA
+# 3. CAC HAM QUET BAN QUYEN VA PHAT HIEN BE KHOA
 function Get-WindowsActivation {
     $result = @{
         Status = "Unknown"
-        StatusText = "Chưa quét"
+        StatusText = "Chua quet"
         ProductName = "Windows"
-        Channel = "Không xác định"
-        KMSServer = "Không phát hiện"
+        Channel = "Khong xac dinh"
+        KMSServer = "Khong phat hien"
         RawStatus = -1
         IsGenuine = $true
         Details = ""
@@ -56,35 +56,35 @@ function Get-WindowsActivation {
             $result.RawStatus = $win.LicenseStatus
             
             switch ($win.LicenseStatus) {
-                0 { $result.StatusText = "Chưa kích hoạt (Unlicensed)"; $result.Status = "Unlicensed" }
-                1 { $result.StatusText = "Đã kích hoạt (Licensed)"; $result.Status = "Licensed" }
-                2 { $result.StatusText = "Ân hạn ban đầu (OOB Grace)"; $result.Status = "Grace" }
-                3 { $result.StatusText = "Ân hạn hết hạn (OOT Grace)"; $result.Status = "Grace" }
-                4 { $result.StatusText = "Ân hạn không chính hãng (Non-genuine)"; $result.Status = "Warning" }
-                5 { $result.StatusText = "Chờ kích hoạt / Hết hạn (Notification)"; $result.Status = "Notification" }
-                6 { $result.StatusText = "Ân hạn mở rộng (Extended Grace)"; $result.Status = "Grace" }
-                default { $result.StatusText = "Không xác định"; $result.Status = "Unknown" }
+                0 { $result.StatusText = "Chua kich hoat (Unlicensed)"; $result.Status = "Unlicensed" }
+                1 { $result.StatusText = "Da kich hoat (Licensed)"; $result.Status = "Licensed" }
+                2 { $result.StatusText = "An han ban dau (OOB Grace)"; $result.Status = "Grace" }
+                3 { $result.StatusText = "An han het han (OOT Grace)"; $result.Status = "Grace" }
+                4 { $result.StatusText = "An han khong chinh hang (Non-genuine)"; $result.Status = "Warning" }
+                5 { $result.StatusText = "Cho kich hoat / Het han (Notification)"; $result.Status = "Notification" }
+                6 { $result.StatusText = "An han mo rong (Extended Grace)"; $result.Status = "Grace" }
+                default { $result.StatusText = "Khong xac dinh"; $result.Status = "Unknown" }
             }
             
-            if ($win.Description -like "*RETAIL*") { $result.Channel = "Retail (Bán lẻ)" }
-            elseif ($win.Description -like "*OEM*") { $result.Channel = "OEM (Theo máy)" }
-            elseif ($win.Description -like "*VOLUME_KMSCLIENT*") { $result.Channel = "Volume KMS (KMS Doanh nghiệp)" }
+            if ($win.Description -like "*RETAIL*") { $result.Channel = "Retail (Ban le)" }
+            elseif ($win.Description -like "*OEM*") { $result.Channel = "OEM (Theo may)" }
+            elseif ($win.Description -like "*VOLUME_KMSCLIENT*") { $result.Channel = "Volume KMS (KMS Doanh nghiep)" }
             elseif ($win.Description -like "*VOLUME_MAK*") { $result.Channel = "Volume MAK" }
-            else { $result.Channel = "Khác/Tự cấu hình" }
+            else { $result.Channel = "Khac/Tu cau hinh" }
             
             $licService = Get-CimInstance -ClassName SoftwareLicensingService -ErrorAction SilentlyContinue
             if ($licService -and $licService.KeyManagementServiceMachine) {
                 $result.KMSServer = "$($licService.KeyManagementServiceMachine):$($licService.KeyManagementServicePort)"
             }
             
-            $result.Details = "Sản phẩm: $($win.Name)`nPhân nhóm: $($result.Channel)`nTrạng thái: $($result.StatusText)`nMáy chủ kích hoạt KMS: $($result.KMSServer)"
+            $result.Details = "San pham: $($win.Name)`nPhan nhom: $($result.Channel)`nTrang thai: $($result.StatusText)`nMay chu kich hoat KMS: $($result.KMSServer)"
         } else {
-            $result.StatusText = "Không có sản phẩm hoạt động"
-            $result.Details = "Không thể tìm thấy thông tin giấy phép Windows hợp lệ qua WMI."
+            $result.StatusText = "Khong co san pham hoat dong"
+            $result.Details = "Khong the tim thay thong tin giay phep Windows hop le qua WMI."
         }
     } catch {
-        $result.StatusText = "Lỗi truy vấn"
-        $result.Details = "Lỗi khi lấy thông tin bản quyền Windows: $($_.Exception.Message)"
+        $result.StatusText = "Loi truy van"
+        $result.Details = "Loi khi lay thong tin ban quyen Windows: $($_.Exception.Message)"
     }
     return $result
 }
@@ -95,18 +95,18 @@ function Get-OfficeActivation {
     if ($offices) {
         foreach ($off in $offices) {
             $statusText = switch ($off.LicenseStatus) {
-                0 { "Chưa kích hoạt" }
-                1 { "Đã kích hoạt" }
-                2 { "Ân hạn ban đầu" }
-                3 { "Ân hạn hết hạn" }
-                4 { "Ân hạn không chính hãng" }
-                5 { "Chờ kích hoạt / Hết hạn" }
-                6 { "Ân hạn mở rộng" }
-                default { "Không xác định" }
+                0 { "Chua kich hoat" }
+                1 { "Da kich hoat" }
+                2 { "An han ban dau" }
+                3 { "An han het han" }
+                4 { "An han khong chinh hang" }
+                5 { "Cho kich hoat / Het han" }
+                6 { "An han mo rong" }
+                default { "Khong xac dinh" }
             }
             
-            $channel = "Không xác định"
-            if ($off.Description -like "*RETAIL*") { $channel = "Retail (Bán lẻ)" }
+            $channel = "Khong xac dinh"
+            if ($off.Description -like "*RETAIL*") { $channel = "Retail (Ban le)" }
             elseif ($off.Description -like "*VOLUME_KMS*") { $channel = "Volume KMS" }
             elseif ($off.Description -like "*VOLUME_MAK*") { $channel = "Volume MAK" }
             elseif ($off.Description -like "*SUBSCRIPTION*") { $channel = "Subscription (Office 365)" }
@@ -161,9 +161,9 @@ function Get-OfficeActivation {
                 }
                 elseif ($line -like "*LICENSE STATUS:*") {
                     $statusLine = ($line -split "LICENSE STATUS:")[1].Trim()
-                    if ($statusLine -like "*---LICENSED---*") { $status = "Đã kích hoạt" }
-                    elseif ($statusLine -like "*---NOTIFIED---*") { $status = "Chờ kích hoạt / Hết hạn" }
-                    else { $status = "Chưa kích hoạt ($statusLine)" }
+                    if ($statusLine -like "*---LICENSED---*") { $status = "Da kich hoat" }
+                    elseif ($statusLine -like "*---NOTIFIED---*") { $status = "Cho kich hoat / Het han" }
+                    else { $status = "Chua kich hoat ($statusLine)" }
                 }
                 elseif ($line -like "*KMS MACHINE NAME:*") {
                     $kms = ($line -split "KMS MACHINE NAME:")[1].Trim()
@@ -188,8 +188,8 @@ function Get-OfficeActivation {
     $c2rInstalled = Get-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*Microsoft 365*" }
     if ($c2rInstalled -and ($officeList.Count -eq 0 -or -not ($officeList | Where-Object { $_.ProductName -like "*365*" -or $_.ProductName -like "*Subscription*" }))) {
         $officeList += [PSCustomObject]@{
-            ProductName = "Microsoft 365 Apps (Đăng ký thuê bao)"
-            Status = "Đã cài đặt (Kích hoạt qua Tài khoản Microsoft)"
+            ProductName = "Microsoft 365 Apps (Dang ky thue bao)"
+            Status = "Da cai dat (Kich hoat qua Tai khoan Microsoft)"
             Channel = "Subscription (ClickToRun)"
             KMSServer = ""
             GraceRemaining = "N/A"
@@ -203,7 +203,7 @@ function Get-CrackDetection {
     $risks = @()
     $details = @()
     
-    # 1. Kiểm tra Hook DLL
+    # 1. Kiem tra Hook DLL
     $hookPaths = @(
         "$env:windir\System32\SppExtComObjHook.dll",
         "$env:windir\SysWOW64\SppExtComObjHook.dll",
@@ -213,12 +213,12 @@ function Get-CrackDetection {
     )
     foreach ($path in $hookPaths) {
         if (Test-Path $path) {
-            $risks += "Phát hiện file hook KMS: $path"
-            $details += "Tệp tin '$path' thường do KMSpico hoặc KMSAuto cài đặt để bypass máy chủ bản quyền của Microsoft."
+            $risks += "Phat hien file hook KMS: $path"
+            $details += "Tep tin '$path' thuong do KMSpico hoac KMSAuto cai dat de bypass may chu ban quyen cua Microsoft."
         }
     }
     
-    # 2. Kiểm tra file Hosts
+    # 2. Kiem tra file Hosts
     $hostsPath = "$env:windir\System32\drivers\etc\hosts"
     if (Test-Path $hostsPath) {
         $hostsLines = Get-Content $hostsPath -ErrorAction SilentlyContinue
@@ -252,46 +252,46 @@ function Get-CrackDetection {
             }
         }
         if ($redirects.Count -gt 0) {
-            $risks += "Sửa đổi tệp tin Hosts (Định tuyến chặn Microsoft)"
-            $details += "Tệp tin Hosts chặn kết nối xác minh của Microsoft (ví dụ: $($redirects -join ', '))."
+            $risks += "Sua doi tep tin Hosts (Dinh tuyen chan Microsoft)"
+            $details += "Tep tin Hosts chan ket noi xac minh cua Microsoft (vi du: $($redirects -join ', '))."
         }
         if ($blockedApps.Count -gt 0) {
-            $risks += "Chặn máy chủ xác thực bản quyền phần mềm trong file Hosts"
-            $details += "Tệp Hosts chặn kết nối đến hãng phần mềm: $($blockedApps -join ', '). Cho thấy các phần mềm này đang dùng bản crack."
+            $risks += "Chan may chu xac thuc ban quyen phan mem trong file Hosts"
+            $details += "Tep Hosts chan ket noi den hang phan mem: $($blockedApps -join ', '). Cho thay cac phan mem nay dang dung ban crack."
         }
     }
     
-    # 3. Kiểm tra Scheduled Tasks
+    # 3. Kiem tra Scheduled Tasks
     $suspiciousTaskNames = @("*AutoKMS*", "*KMSAuto*", "*KMSConnection*", "*AutoPico*", "*HEU_KMS*", "*KMS-Activator*")
     foreach ($pattern in $suspiciousTaskNames) {
         $tasks = Get-ScheduledTask -TaskName $pattern -ErrorAction SilentlyContinue
         foreach ($task in $tasks) {
-            $risks += "Tác vụ chạy ngầm bẻ khóa: $($task.TaskName)"
-            $details += "Tác vụ tự động gia hạn KMS lậu chạy ngầm tại '$($task.TaskPath)'."
+            $risks += "Tac vu chay ngam be khoa: $($task.TaskName)"
+            $details += "Tac vu tu dong gia han KMS lau chay ngam tai '$($task.TaskPath)'."
         }
     }
     
-    # 4. Kiểm tra Services
+    # 4. Kiem tra Services
     $suspiciousServices = @("Service_KMS", "KMSpico Service", "KMSConnectionMonitor", "AutoKMS")
     foreach ($srvName in $suspiciousServices) {
         $srv = Get-Service -Name $srvName -ErrorAction SilentlyContinue
         if ($srv) {
-            $risks += "Dịch vụ KMS lậu chạy nền: $($srv.DisplayName) ($srvName)"
-            $details += "Dịch vụ giả lập KMS nội bộ đang hoạt động."
+            $risks += "Dich vu KMS lau chay nen: $($srv.DisplayName) ($srvName)"
+            $details += "Dich vu gia lap KMS noi bo dang hoat dong."
         }
     }
 
-    # 5. Kiểm tra Processes
+    # 5. Kiem tra Processes
     $suspiciousProcessNames = @("KMSpico", "AutoKMS", "KMSAuto", "KMSConnectionMonitor", "HEU_KMS", "HEU_KMS_Activator")
     foreach ($procName in $suspiciousProcessNames) {
         $proc = Get-Process -Name $procName -ErrorAction SilentlyContinue
         if ($proc) {
-            $risks += "Tiến trình bẻ khóa đang chạy: $procName"
-            $details += "Tiến trình '$procName' (PID: $($proc.Id)) đang chạy ngầm thời gian thực."
+            $risks += "Tien trinh be khoa dang chay: $procName"
+            $details += "Tien trinh '$procName' (PID: $($proc.Id)) dang chay ngam thoi gian thuc."
         }
     }
     
-    # 6. Kiểm tra các thư mục chứa công cụ bẻ khóa hệ thống
+    # 6. Kiem tra cac thu muc chua cong cu be khoa he thong
     $crackFolders = @(
         "${env:ProgramFiles}\KMSpico",
         "${env:ProgramFiles(x86)}\KMSpico",
@@ -305,17 +305,17 @@ function Get-CrackDetection {
             if ($folder -eq "C:\Windows\Setup\Scripts") {
                 $scripts = Get-ChildItem -Path $folder -Filter "*.bat" -ErrorAction SilentlyContinue
                 if ($scripts) {
-                    $risks += "Thư mục hệ thống chứa Script kích hoạt lậu: $folder"
-                    $details += "Thư mục chứa script *.bat cấu hình bản quyền tự động khi cài Win."
+                    $risks += "Thu muc he thong chua Script kich hoat lau: $folder"
+                    $details += "Thu muc chua script *.bat cau hinh ban quyen tu dong khi cai Win."
                 }
             } else {
-                $risks += "Phát hiện thư mục phần mềm bẻ khóa hệ thống: $folder"
-                $details += "Thư mục cài đặt ứng dụng bẻ khóa tồn tại ở '$folder'."
+                $risks += "Phat hien thu muc phan mem be khoa he thong: $folder"
+                $details += "Thu muc cai dat ung dung be khoa ton tai o '$folder'."
             }
         }
     }
     
-    # 7. QUÉT ĐỘNG PHẦN MỀM BÊN THỨ 3 (Dynamic Third-Party Crack Scan)
+    # 7. QUET DONG PHAN MEM BEN THU 3 (Dynamic Third-Party Crack Scan)
     $targetKeywords = @("MiniTool", "Adobe", "Autodesk", "AutoCAD", "Corel", "Camtasia", "TechSmith", "Internet Download Manager", "IDM", "Wondershare", "CCleaner", "SketchUp", "SolidWorks", "WinZip", "WinRAR")
     $targetFilesMap = @{
         "MiniTool" = @("partitionwizard.dll", "partitionwizard.exe", "PowerDataRecoveryCore.dll", "PowerDataRecovery.exe")
@@ -371,8 +371,8 @@ function Get-CrackDetection {
                         foreach ($file in $foundFiles) {
                             $sig = Get-AuthenticodeSignature -FilePath $file.FullName -ErrorAction SilentlyContinue
                             if ($sig -and $sig.Status -ne 'Valid') {
-                                $risks += "Phát hiện $($app.DisplayName) bị Crack (Mất chữ ký số)"
-                                $details += "Tệp tin '$($file.FullName)' của '$($app.DisplayName)' mất chữ ký số hợp lệ (Trạng thái: $($sig.Status)), chứng tỏ tệp tin này đã bị crack (patch)."
+                                $risks += "Phat hien $($app.DisplayName) bi Crack (Mat chu ky so)"
+                                $details += "Tep tin '$($file.FullName)' cua '$($app.DisplayName)' mat chu ky so hop le (Trang thai: $($sig.Status)), chung to tep tin nay da bi crack (patch)."
                             }
                         }
                     }
@@ -381,19 +381,19 @@ function Get-CrackDetection {
         }
     }
     
-    # 8. Cấu hình KMS của Windows & Office
+    # 8. Cau hinh KMS cua Windows & Office
     $licService = Get-CimInstance -ClassName SoftwareLicensingService -ErrorAction SilentlyContinue
     if ($licService -and $licService.KeyManagementServiceMachine) {
         $kmsMachine = $licService.KeyManagementServiceMachine
         $knownKmsServers = @("kms8.msguides.com", "kms.digiboy.ir", "kms.lotro.cc", "kms.chinancce.com", "zh.us.to", "kms.msguides.com", "kms.spacespaces.xyz")
         if ($kmsMachine -eq "127.0.0.1" -or $kmsMachine -eq "localhost" -or $kmsMachine -eq "::1") {
-            $risks += "Windows cấu hình máy chủ KMS nội bộ (Localhost)"
-            $details += "Bản quyền Windows trỏ về chính máy tính ($kmsMachine). Dấu hiệu bẻ khóa giả lập cục bộ."
+            $risks += "Windows cau hinh may chu KMS noi bo (Localhost)"
+            $details += "Ban quyen Windows tro ve chinh may tinh ($kmsMachine). Dau hieu be khoa gia lap cuc bo."
         } else {
             foreach ($srv in $knownKmsServers) {
                 if ($kmsMachine -like "*$srv*") {
-                    $risks += "Windows sử dụng máy chủ KMS bẻ khóa công cộng: $kmsMachine"
-                    $details += "Bản quyền hệ thống trỏ tới máy chủ KMS miễn phí trên Internet."
+                    $risks += "Windows su dung may chu KMS be khoa cong cong: $kmsMachine"
+                    $details += "Ban quyen he thong tro toi may chu KMS mien phi tren Internet."
                     break
                 }
             }
@@ -404,32 +404,32 @@ function Get-CrackDetection {
     if ($officeRegKms -and $officeRegKms.KeyManagementServiceMachine) {
         $kmsMachineOffice = $officeRegKms.KeyManagementServiceMachine
         if ($kmsMachineOffice -eq "127.0.0.1" -or $kmsMachineOffice -eq "localhost" -or $kmsMachineOffice -eq "::1") {
-            $risks += "Office cấu hình máy chủ KMS nội bộ (Localhost)"
-            $details += "Bản quyền Office trỏ máy chủ kích hoạt về chính máy tính thông qua Registry."
+            $risks += "Office cau hinh may chu KMS noi bo (Localhost)"
+            $details += "Ban quyen Office tro may chu kich hoat ve chinh may tinh thong qua Registry."
         }
     }
 
-    # 9. Kiểm tra cổng KMS 1688
+    # 9. Kiem tra cong KMS 1688
     try {
         $kmsPort = Get-NetTCPConnection -LocalPort 1688 -State Listen -ErrorAction SilentlyContinue
         if ($kmsPort) {
-            $risks += "Phát hiện cổng dịch vụ KMS (1688) đang mở"
-            $details += "Cổng TCP 1688 đang lắng nghe (Listen) cục bộ. Dấu hiệu của KMS giả lập chạy ẩn."
+            $risks += "Phat hien cong dich vu KMS (1688) dang mo"
+            $details += "Cong TCP 1688 dang lang nghe (Listen) cuc bo. Dau hieu cua KMS gia lap chay an."
         }
     } catch {
         $netstat = netstat -ano 2>&1 | Select-String ":1688\s+.*LISTENING"
         if ($netstat) {
-            $risks += "Phát hiện cổng dịch vụ KMS (1688) đang mở (netstat)"
-            $details += "Cổng 1688 đang mở ở trạng thái LISTENING qua lệnh netstat."
+            $risks += "Phat hien cong dich vu KMS (1688) dang mo (netstat)"
+            $details += "Cong 1688 dang mo o trang thai LISTENING qua lenh netstat."
         }
     }
 
-    # 10. Kiểm tra Registry của phần mềm bẻ khóa
+    # 10. Kiem tra Registry cua phan mem be khoa
     $crackRegs = @("HKLM:\SOFTWARE\KMSAuto", "HKLM:\SOFTWARE\KMSAutoS", "HKLM:\SOFTWARE\KMSpico", "HKCU:\Software\KMSAuto", "HKCU:\Software\KMSAutoS")
     foreach ($reg in $crackRegs) {
         if (Test-Path $reg) {
-            $risks += "Phát hiện khóa Registry bẻ khóa: $reg"
-            $details += "Khóa cấu hình của KMSAuto/KMSpico được phát hiện tại '$reg'."
+            $risks += "Phat hien khoa Registry be khoa: $reg"
+            $details += "Khoa cau hinh cua KMSAuto/KMSpico duoc phat hien tai '$reg'."
         }
     }
     
@@ -439,14 +439,14 @@ function Get-CrackDetection {
     }
 }
 
-# 4. HÀM GỠ CÀI ĐẶT HÀNG LOẠT (BULK UNINSTALL) CÁC PHẦN MỀM CRACK BÊN THỨ 3
+# 4. HAM GO CAI DAT HANG LOAT (BULK UNINSTALL) CAC PHAN MEM CRACK BEN THU 3
 function Start-CrackedAppsUninstallProcess {
     $log = New-Object System.Text.StringBuilder
     $log.AppendLine("==================================================================================") | Out-Null
-    $log.AppendLine("          BẮT ĐẦU QUÁ TRÌNH GỠ CÀI ĐẶT HÀNG LOẠT (BULK UNINSTALL) CÁC APP CRACK   ") | Out-Null
+    $log.AppendLine("          BAT DAU QUA TRINH GO CAI DAT HANG LOAT (BULK UNINSTALL) CAC APP CRACK   ") | Out-Null
     $log.AppendLine("==================================================================================") | Out-Null
-    $log.AppendLine("Thời gian thực hiện : $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')") | Out-Null
-    $log.AppendLine("Tên máy tính        : $env:COMPUTERNAME") | Out-Null
+    $log.AppendLine("Thoi gian thuc hien : $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')") | Out-Null
+    $log.AppendLine("Ten may tinh        : $env:COMPUTERNAME") | Out-Null
     $log.AppendLine("----------------------------------------------------------------------------------") | Out-Null
     $log.AppendLine() | Out-Null
 
@@ -460,7 +460,7 @@ function Start-CrackedAppsUninstallProcess {
     
     $crackedAppsFound = @()
     foreach ($risk in $crackResult.Risks) {
-        if ($risk -like "*bị Crack*") {
+        if ($risk -like "*bi Crack*") {
             foreach ($app in $installedApps) {
                 if ($risk -like "*$($app.DisplayName)*") {
                     if (-not ($crackedAppsFound | Where-Object { $_.DisplayName -eq $app.DisplayName })) {
@@ -472,12 +472,12 @@ function Start-CrackedAppsUninstallProcess {
     }
     
     if ($crackedAppsFound.Count -eq 0) {
-        $log.AppendLine(" -> [THÔNG BÁO] Không phát hiện thấy phần mềm bên thứ ba nào đang bị bẻ khóa trên hệ thống.") | Out-Null
+        $log.AppendLine(" -> [THONG BAO] Khong phat hien thay phan mem ben thu ba nao dang bi be khoa tren he thong.") | Out-Null
         $log.AppendLine("==================================================================================") | Out-Null
         return @{ Log = $log.ToString(); Count = 0 }
     }
 
-    $log.AppendLine(" -> Phát hiện $($crackedAppsFound.Count) phần mềm bị bẻ khóa cần gỡ hàng loạt:") | Out-Null
+    $log.AppendLine(" -> Phat hien $($crackedAppsFound.Count) phan mem bi be khoa can go hang loat:") | Out-Null
     foreach ($a in $crackedAppsFound) {
         $log.AppendLine("    * $($a.DisplayName)") | Out-Null
     }
@@ -493,7 +493,7 @@ function Start-CrackedAppsUninstallProcess {
         }
         
         if (-not [string]::IsNullOrWhiteSpace($unCmd)) {
-            $log.AppendLine("[+] Đang gỡ tự động ($($uninstalledCount + 1)/$($crackedAppsFound.Count)): $($app.DisplayName)...") | Out-Null
+            $log.AppendLine("[+] Dang go tu dong ($($uninstalledCount + 1)/$($crackedAppsFound.Count)): $($app.DisplayName)...") | Out-Null
             
             try {
                 $exe = ""
@@ -527,81 +527,81 @@ function Start-CrackedAppsUninstallProcess {
                     $argList = $argList.Trim()
 
                     $p = if ([string]::IsNullOrWhiteSpace($argList)) {
-                        $log.AppendLine("    Lệnh thực thi: `"$exe`"") | Out-Null
+                        $log.AppendLine("    Lenh thuc thi: `"$exe`"") | Out-Null
                         Start-Process -FilePath $exe -PassThru -ErrorAction SilentlyContinue
                     } else {
-                        $log.AppendLine("    Lệnh thực thi: `"$exe`" $argList") | Out-Null
+                        $log.AppendLine("    Lenh thuc thi: `"$exe`" $argList") | Out-Null
                         Start-Process -FilePath $exe -ArgumentList $argList -PassThru -ErrorAction SilentlyContinue
                     }
                     
                     if ($p) { $p.WaitForExit(60000) }
                 } else {
-                    $log.AppendLine("    Thực thi lệnh CMD: $cleanUnCmd") | Out-Null
+                    $log.AppendLine("    Thuc thi lenh CMD: $cleanUnCmd") | Out-Null
                     $p = Start-Process cmd.exe -ArgumentList "/c `"$cleanUnCmd`"" -PassThru -ErrorAction SilentlyContinue
                     if ($p) { $p.WaitForExit(60000) }
                 }
                 
-                $log.AppendLine(" -> ĐÃ GỠ THÀNH CÔNG: $($app.DisplayName)") | Out-Null
+                $log.AppendLine(" -> DA GO THANH CONG: $($app.DisplayName)") | Out-Null
                 $uninstalledCount++
             } catch {
-                $log.AppendLine(" -> Lỗi khi gỡ $($app.DisplayName): $($_.Exception.Message)") | Out-Null
+                $log.AppendLine(" -> Loi khi go $($app.DisplayName): $($_.Exception.Message)") | Out-Null
             }
         } else {
-            $log.AppendLine(" -> Bỏ qua $($app.DisplayName): Không tìm thấy UninstallString trong Registry.") | Out-Null
+            $log.AppendLine(" -> Bo qua $($app.DisplayName): Khong tim thay UninstallString trong Registry.") | Out-Null
         }
         $log.AppendLine("----------------------------------------------------------------------------------") | Out-Null
     }
     
     $log.AppendLine("==================================================================================") | Out-Null
-    $log.AppendLine("       HOÀN TẤT GỠ CÀI ĐẶT HÀNG LOẠT $uninstalledCount / $($crackedAppsFound.Count) PHẦN MỀM BỆ KHÓA           ") | Out-Null
+    $log.AppendLine("       HOAN TAT GO CAI DAT HANG LOAT $uninstalledCount / $($crackedAppsFound.Count) PHAN MEM BE KHOA           ") | Out-Null
     $log.AppendLine("==================================================================================") | Out-Null
 
     return @{ Log = $log.ToString(); Count = $uninstalledCount }
 }
 
-# 5. HÀM GỠ BỎ KMS LẬU VÀ DỌN DẸP HỆ THỐNG
+# 5. HAM GO BO KMS LAU VA DON DEP HE THONG
 function Start-KMSRemovalProcess {
     $log = New-Object System.Text.StringBuilder
     $log.AppendLine("==================================================================================") | Out-Null
-    $log.AppendLine("              BẮT ĐẦU QUÁ TRÌNH GỠ BỎ BẢN QUYỀN KMS LẬU VÀ BẢO TRÌ SYSTEM         ") | Out-Null
+    $log.AppendLine("              BAT DAU QUA TRINH GO BO BAN QUYEN KMS LAU VA BAO TRI SYSTEM         ") | Out-Null
     $log.AppendLine("==================================================================================") | Out-Null
-    $log.AppendLine("Thời gian thực hiện : $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')") | Out-Null
-    $log.AppendLine("Tên máy tính        : $env:COMPUTERNAME") | Out-Null
+    $log.AppendLine("Thoi gian thuc hien : $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')") | Out-Null
+    $log.AppendLine("Ten may tinh        : $env:COMPUTERNAME") | Out-Null
     $log.AppendLine("----------------------------------------------------------------------------------") | Out-Null
     $log.AppendLine() | Out-Null
 
-    # Bước 1: Xóa cấu hình máy chủ KMS (slmgr /ckms)
-    $log.AppendLine("[BƯỚC 1] Đang gỡ bỏ cấu hình máy chủ KMS (Clear KMS Server)...") | Out-Null
+    # Buoc 1: Xoa cau hinh may chu KMS (slmgr /ckms)
+    $log.AppendLine("[BUOC 1] Dang go bo cau hinh may chu KMS (Clear KMS Server)...") | Out-Null
     try {
         $ckmsResult = cscript.exe //NoLogo "$env:windir\System32\slmgr.vbs" /ckms 2>&1
-        $log.AppendLine(" -> Kết quả slmgr /ckms: $($ckmsResult -join ' ')") | Out-Null
+        $log.AppendLine(" -> Ket qua slmgr /ckms: $($ckmsResult -join ' ')") | Out-Null
     } catch {
-        $log.AppendLine(" -> Lỗi khi chạy slmgr /ckms: $($_.Exception.Message)") | Out-Null
+        $log.AppendLine(" -> Loi khi chay slmgr /ckms: $($_.Exception.Message)") | Out-Null
     }
     $log.AppendLine() | Out-Null
 
-    # Bước 2: Gỡ bỏ khóa sản phẩm KMS hiện tại (slmgr /upk)
-    $log.AppendLine("[BƯỚC 2] Đang gỡ bỏ Product Key KMS hiện tại (Uninstall Product Key)...") | Out-Null
+    # Buoc 2: Go bo khoa san pham KMS hien tai (slmgr /upk)
+    $log.AppendLine("[BUOC 2] Dang go bo Product Key KMS hien tai (Uninstall Product Key)...") | Out-Null
     try {
         $upkResult = cscript.exe //NoLogo "$env:windir\System32\slmgr.vbs" /upk 2>&1
-        $log.AppendLine(" -> Kết quả slmgr /upk: $($upkResult -join ' ')") | Out-Null
+        $log.AppendLine(" -> Ket qua slmgr /upk: $($upkResult -join ' ')") | Out-Null
     } catch {
-        $log.AppendLine(" -> Lỗi khi chạy slmgr /upk: $($_.Exception.Message)") | Out-Null
+        $log.AppendLine(" -> Loi khi chay slmgr /upk: $($_.Exception.Message)") | Out-Null
     }
     $log.AppendLine() | Out-Null
 
-    # Bước 3: Xóa thông tin Product Key khỏi Registry (slmgr /cpky)
-    $log.AppendLine("[BƯỚC 3] Đang xóa thông tin Product Key khỏi Registry (Clear Product Key from Registry)...") | Out-Null
+    # Buoc 3: Xoa thong tin Product Key khoi Registry (slmgr /cpky)
+    $log.AppendLine("[BUOC 3] Dang xoa thong tin Product Key khoi Registry (Clear Product Key from Registry)...") | Out-Null
     try {
         $cpkyResult = cscript.exe //NoLogo "$env:windir\System32\slmgr.vbs" /cpky 2>&1
-        $log.AppendLine(" -> Kết quả slmgr /cpky: $($cpkyResult -join ' ')") | Out-Null
+        $log.AppendLine(" -> Ket qua slmgr /cpky: $($cpkyResult -join ' ')") | Out-Null
     } catch {
-        $log.AppendLine(" -> Lỗi khi chạy slmgr /cpky: $($_.Exception.Message)") | Out-Null
+        $log.AppendLine(" -> Loi khi chay slmgr /cpky: $($_.Exception.Message)") | Out-Null
     }
     $log.AppendLine() | Out-Null
 
-    # Bước 4: Làm sạch tệp tin Hosts (Gỡ chặn các máy chủ xác minh Microsoft)
-    $log.AppendLine("[BƯỚC 4] Đang kiểm tra và làm sạch tệp tin Hosts...") | Out-Null
+    # Buoc 4: Lam sach tep tin Hosts (Go chan cac may chu xac minh Microsoft)
+    $log.AppendLine("[BUOC 4] Dang kiem tra va lam sach tep tin Hosts...") | Out-Null
     $hostsPath = "$env:windir\System32\drivers\etc\hosts"
     if (Test-Path $hostsPath) {
         try {
@@ -612,7 +612,7 @@ function Start-KMSRemovalProcess {
             foreach ($line in $lines) {
                 $clean = $line.Trim()
                 if ($clean -and -not $clean.StartsWith("#") -and ($clean -like "*microsoft*" -or $clean -like "*activation*" -or $clean -like "*kms*")) {
-                    $log.AppendLine(" -> Đã gỡ bỏ dòng chặn: $clean") | Out-Null
+                    $log.AppendLine(" -> Da go bo dong chan: $clean") | Out-Null
                     $removedCount++
                 } else {
                     $cleanLines += $line
@@ -620,18 +620,18 @@ function Start-KMSRemovalProcess {
             }
             if ($removedCount -gt 0) {
                 $cleanLines | Set-Content $hostsPath -Encoding utf8 -Force
-                $log.AppendLine(" -> Đã làm sạch $removedCount dòng cấu hình chặn trong file Hosts thành công!") | Out-Null
+                $log.AppendLine(" -> Da lam sach $removedCount dong cau hinh chan trong file Hosts thanh cong!") | Out-Null
             } else {
-                $log.AppendLine(" -> Tệp Hosts không chứa cấu hình chặn máy chủ Microsoft.") | Out-Null
+                $log.AppendLine(" -> Tep Hosts khong chua cau hinh chan may chu Microsoft.") | Out-Null
             }
         } catch {
-            $log.AppendLine(" -> Lỗi khi chỉnh sửa file Hosts: $($_.Exception.Message)") | Out-Null
+            $log.AppendLine(" -> Loi khi chinh sua file Hosts: $($_.Exception.Message)") | Out-Null
         }
     }
     $log.AppendLine() | Out-Null
 
-    # Bước 5: Tìm và gỡ bỏ Tác vụ chạy ngầm bẻ khóa (Scheduled Tasks)
-    $log.AppendLine("[BƯỚC 5] Đang dọn dẹp các tác vụ bẻ khóa tự động (Scheduled Tasks)...") | Out-Null
+    # Buoc 5: Tim va go bo Tac vu chay ngam be khoa (Scheduled Tasks)
+    $log.AppendLine("[BUOC 5] Dang don dep cac tac vu be khoa tu dong (Scheduled Tasks)...") | Out-Null
     $suspiciousTaskNames = @("*AutoKMS*", "*KMSAuto*", "*KMSConnection*", "*AutoPico*", "*HEU_KMS*", "*KMS-Activator*")
     $removedTasks = 0
     foreach ($pattern in $suspiciousTaskNames) {
@@ -639,18 +639,18 @@ function Start-KMSRemovalProcess {
         foreach ($t in $tasks) {
             try {
                 Unregister-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -Confirm:$false -ErrorAction SilentlyContinue
-                $log.AppendLine(" -> Đã gỡ bỏ tác vụ bẻ khóa: $($t.TaskName) ($($t.TaskPath))") | Out-Null
+                $log.AppendLine(" -> Da go bo tac vu be khoa: $($t.TaskName) ($($t.TaskPath))") | Out-Null
                 $removedTasks++
             } catch {}
         }
     }
     if ($removedTasks -eq 0) {
-        $log.AppendLine(" -> Không phát hiện tác vụ chạy ngầm bẻ khóa nào.") | Out-Null
+        $log.AppendLine(" -> Khong phat hien tac vu chay ngam be khoa nao.") | Out-Null
     }
     $log.AppendLine() | Out-Null
 
-    # Bước 6: Tìm và dừng/gỡ bỏ Dịch vụ KMS lậu (Services)
-    $log.AppendLine("[BƯỚC 6] Đang dọn dẹp các dịch vụ KMS lậu (Services)...") | Out-Null
+    # Buoc 6: Tim va dung/go bo Dich vu KMS lau (Services)
+    $log.AppendLine("[BUOC 6] Dang don dep cac dich vu KMS lau (Services)...") | Out-Null
     $suspiciousServices = @("Service_KMS", "KMSpico Service", "KMSConnectionMonitor", "AutoKMS")
     $removedSrvs = 0
     foreach ($srvName in $suspiciousServices) {
@@ -659,26 +659,26 @@ function Start-KMSRemovalProcess {
             try {
                 Stop-Service -Name $srvName -Force -ErrorAction SilentlyContinue
                 sc.exe delete $srvName | Out-Null
-                $log.AppendLine(" -> Đã dừng và gỡ bỏ dịch vụ KMS lậu: $($srv.DisplayName) ($srvName)") | Out-Null
+                $log.AppendLine(" -> Da dung va go bo dich vu KMS lau: $($srv.DisplayName) ($srvName)") | Out-Null
                 $removedSrvs++
             } catch {}
         }
     }
     if ($removedSrvs -eq 0) {
-        $log.AppendLine(" -> Không phát hiện dịch vụ KMS lậu chạy ngầm nào.") | Out-Null
+        $log.AppendLine(" -> Khong phat hien dich vu KMS lau chay ngam nao.") | Out-Null
     }
     $log.AppendLine() | Out-Null
 
     $log.AppendLine("==================================================================================") | Out-Null
-    $log.AppendLine("                    HOÀN TẤT QUÁ TRÌNH GỠ BỎ BẢN QUYỀN KMS LẬU                    ") | Out-Null
-    $log.AppendLine(" - Trạng thái Windows hiện tại đã trở về chưa kích hoạt (Default / Unlicensed).") | Out-Null
-    $log.AppendLine(" - Bạn có thể nhập khóa bản quyền chính hãng (Retail / OEM / MAK) để kích hoạt lại.") | Out-Null
+    $log.AppendLine("                    HOAN TAT QUA TRINH GO BO BAN QUYEN KMS LAU                    ") | Out-Null
+    $log.AppendLine(" - Trang thai Windows hien tai da tro ve chua kich hoat (Default / Unlicensed).") | Out-Null
+    $log.AppendLine(" - Ban co the nhap khoa ban quyen chinh hang (Retail / OEM / MAK) de kich hoat lai.") | Out-Null
     $log.AppendLine("==================================================================================") | Out-Null
 
     return $log.ToString()
 }
 
-# 6. CHẠY CHẾ ĐỘ DÒNG LỆNH (CLI)
+# 6. CHAY CHE DO DONG LENH (CLI)
 if ($ConsoleOnly) {
     if ($RemoveKMS) {
         $res = Start-KMSRemovalProcess
@@ -688,42 +688,42 @@ if ($ConsoleOnly) {
         Write-Host $res.Log
     } else {
         Write-Host "`n==========================================================================" -ForegroundColor Cyan
-        Write-Host "             CÔNG CỤ KIỂM TRA BẢN QUYỀN WINDOWS & OFFICE                   " -ForegroundColor White -BackgroundColor DarkBlue
+        Write-Host "             CONG CU KIEM TRA BAN QUYEN WINDOWS & OFFICE                   " -ForegroundColor White -BackgroundColor DarkBlue
         Write-Host "==========================================================================" -ForegroundColor Cyan
         
-        Write-Host "`n[+] Đang quét bản quyền Windows..." -ForegroundColor Yellow
+        Write-Host "`n[+] Dang quet ban quyen Windows..." -ForegroundColor Yellow
         $win = Get-WindowsActivation
-        Write-Host " - Phiên bản    : $($win.ProductName)"
-        Write-Host " - Phân loại    : $($win.Channel)"
-        Write-Host " - Trạng thái   : $($win.StatusText)"
-        if ($win.KMSServer -and $win.KMSServer -ne "Không phát hiện") {
-            Write-Host " - Máy chủ KMS  : $($win.KMSServer)" -ForegroundColor Red
+        Write-Host " - Phien ban    : $($win.ProductName)"
+        Write-Host " - Phan loai    : $($win.Channel)"
+        Write-Host " - Trang thai   : $($win.StatusText)"
+        if ($win.KMSServer -and $win.KMSServer -ne "Khong phat hien") {
+            Write-Host " - May chu KMS  : $($win.KMSServer)" -ForegroundColor Red
         }
         
-        Write-Host "`n[+] Đang quét bản quyền Office..." -ForegroundColor Yellow
+        Write-Host "`n[+] Dang quet ban quyen Office..." -ForegroundColor Yellow
         $officeList = Get-OfficeActivation
         if ($officeList.Count -eq 0) {
-            Write-Host " - Không tìm thấy bản Office nào đã đăng ký khóa bản quyền." -ForegroundColor Gray
+            Write-Host " - Khong tim thay ban Office nao da dang ky khoa ban quyen." -ForegroundColor Gray
         } else {
             foreach ($off in $officeList) {
-                Write-Host " - Tên sản phẩm : $($off.ProductName)"
-                Write-Host "   Trạng thái   : $($off.Status)"
-                Write-Host "   Phân nhóm    : $($off.Channel)"
+                Write-Host " - Ten san pham : $($off.ProductName)"
+                Write-Host "   Trang thai   : $($off.Status)"
+                Write-Host "   Phan nhom    : $($off.Channel)"
                 if ($off.KMSServer) {
-                    Write-Host "   Máy chủ KMS  : $($off.KMSServer)" -ForegroundColor Red
+                    Write-Host "   May chu KMS  : $($off.KMSServer)" -ForegroundColor Red
                 }
             }
         }
         
-        Write-Host "`n[+] Đang quét các dấu vết công cụ Crack..." -ForegroundColor Yellow
+        Write-Host "`n[+] Dang quet cac dau vet cong cu Crack..." -ForegroundColor Yellow
         $crack = Get-CrackDetection
         if ($crack.Risks.Count -eq 0) {
-            Write-Host " - [AN TOÀN] Không phát hiện thấy bất kỳ dấu hiệu phần mềm crack/bẻ khóa nào." -ForegroundColor Green
+            Write-Host " - [AN TOAN] Khong phat hien thay bat ky dau hieu phan mem crack/be khoa nao." -ForegroundColor Green
         } else {
-            Write-Host " - [CẢNH BÁO] Phát hiện $($crack.Risks.Count) dấu hiệu crack/bẻ khóa hệ thống:" -ForegroundColor Red
+            Write-Host " - [CANH BAO] Phat hien $($crack.Risks.Count) dau hieu crack/be khoa he thong:" -ForegroundColor Red
             for ($i = 0; $i -lt $crack.Risks.Count; $i++) {
-                Write-Host "   * Dấu hiệu: $($crack.Risks[$i])" -ForegroundColor Red
-                Write-Host "     Mô tả   : $($crack.Details[$i])" -ForegroundColor Gray
+                Write-Host "   * Dau hieu: $($crack.Risks[$i])" -ForegroundColor Red
+                Write-Host "     Mo ta   : $($crack.Details[$i])" -ForegroundColor Gray
             }
         }
         Write-Host "`n==========================================================================" -ForegroundColor Cyan
@@ -731,11 +731,11 @@ if ($ConsoleOnly) {
     Exit
 }
 
-# 7. ĐỊNH NGHĨA XAML GIAO DIỆN UNIFIED GUI (TẤT-CẢ-TRONG-MỘT VỚI 3 NÚT TÁC VỤ)
+# 7. DINH NGHIA XAML GIAO DIEN UNIFIED GUI (TAT-CA-TRONG-MOT VOI 3 NUT TAC VU)
 $xamlContent = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Công cụ kiểm tra &amp; Quản lý bản quyền Windows - Tất cả trong một" Height="720" Width="1060" 
+        Title="Cong cu kiem tra &amp; Quan ly ban quyen Windows - Tat ca trong mot" Height="720" Width="1060" 
         WindowStartupLocation="CenterScreen" ResizeMode="CanMinimize"
         Background="#0B0F19" BorderBrush="#1E293B" BorderThickness="1">
     
@@ -754,32 +754,32 @@ $xamlContent = @'
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Header chứa 3 nút chính -->
+        <!-- Header chua 3 nut chinh -->
         <Grid Grid.Row="0" Margin="0,0,0,25">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <StackPanel Grid.Column="0">
-                <TextBlock Text="CÔNG CỤ QUẢN LÝ BẢN QUYỀN &amp; DỌN CRACK HỆ THỐNG" FontSize="18.5" FontWeight="Bold" Foreground="#38BDF8"/>
-                <TextBlock Text="Quét bản quyền Windows/Office, gỡ bỏ ứng dụng crack và dọn máy chủ KMS lậu" FontSize="12" Foreground="#94A3B8" Margin="0,5,0,0"/>
+                <TextBlock Text="CONG CU QUAN LY BAN QUYEN &amp; DON CRACK HE THONG" FontSize="18.5" FontWeight="Bold" Foreground="#38BDF8"/>
+                <TextBlock Text="Quet ban quyen Windows/Office, go bo ung dung crack va don may chu KMS lau" FontSize="12" Foreground="#94A3B8" Margin="0,5,0,0"/>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal">
-                <Button Name="btnScan" Content="🔍 BẮT ĐẦU QUÉT" Width="140" Height="42" Background="#0284C7" Foreground="White" FontWeight="Bold" FontSize="12" BorderThickness="0" Cursor="Hand" Margin="0,0,8,0">
+                <Button Name="btnScan" Content="BAT DAU QUET" Width="140" Height="42" Background="#0284C7" Foreground="White" FontWeight="Bold" FontSize="12" BorderThickness="0" Cursor="Hand" Margin="0,0,8,0">
                     <Button.Resources>
                         <Style TargetType="Border">
                             <Setter Property="CornerRadius" Value="6"/>
                         </Style>
                     </Button.Resources>
                 </Button>
-                <Button Name="btnUninstallCracks" Content="⚡ GỠ CRACK HÀNG LOẠT" Width="175" Height="42" Background="#D97706" Foreground="White" FontWeight="Bold" FontSize="12" BorderThickness="0" Cursor="Hand" Margin="0,0,8,0">
+                <Button Name="btnUninstallCracks" Content="GO CRACK HANG LOAT" Width="175" Height="42" Background="#D97706" Foreground="White" FontWeight="Bold" FontSize="12" BorderThickness="0" Cursor="Hand" Margin="0,0,8,0">
                     <Button.Resources>
                         <Style TargetType="Border">
                             <Setter Property="CornerRadius" Value="6"/>
                         </Style>
                     </Button.Resources>
                 </Button>
-                <Button Name="btnRemoveKMS" Content="🗑️ GỠ BỎ KMS LẬU" Width="145" Height="42" Background="#DC2626" Foreground="White" FontWeight="Bold" FontSize="12" BorderThickness="0" Cursor="Hand">
+                <Button Name="btnRemoveKMS" Content="GO BO KMS LAU" Width="145" Height="42" Background="#DC2626" Foreground="White" FontWeight="Bold" FontSize="12" BorderThickness="0" Cursor="Hand">
                     <Button.Resources>
                         <Style TargetType="Border">
                             <Setter Property="CornerRadius" Value="6"/>
@@ -789,38 +789,38 @@ $xamlContent = @'
             </StackPanel>
         </Grid>
 
-        <!-- 3 Cards thông số -->
+        <!-- 3 Cards thong so -->
         <UniformGrid Grid.Row="1" Columns="3" Margin="0,0,0,25">
             <Border Name="cardWin" Background="#111827" BorderBrush="#1F2937" BorderThickness="1.5" CornerRadius="10" Margin="0,0,12,0" Padding="18">
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="🖥️" FontSize="16" Margin="0,0,8,0"/>
-                        <TextBlock Text="HỆ ĐIỀU HÀNH WINDOWS" FontSize="11" FontWeight="Bold" Foreground="#94A3B8" VerticalAlignment="Center"/>
+                        <TextBlock Text="" FontSize="16" Margin="0,0,8,0"/>
+                        <TextBlock Text="HE DIEU HANH WINDOWS" FontSize="11" FontWeight="Bold" Foreground="#94A3B8" VerticalAlignment="Center"/>
                     </StackPanel>
-                    <TextBlock Name="txtWinStatus" Text="Chưa kiểm tra" FontSize="18" FontWeight="Bold" Foreground="#F1F5F9" Margin="0,15,0,8" TextWrapping="Wrap"/>
-                    <TextBlock Name="txtWinDetails" Text="Nhấn nút Quét để nhận thông tin chi tiết về phiên bản và kênh kích hoạt." FontSize="11.5" Foreground="#64748B" TextWrapping="Wrap" LineHeight="16"/>
+                    <TextBlock Name="txtWinStatus" Text="Chua kiem tra" FontSize="18" FontWeight="Bold" Foreground="#F1F5F9" Margin="0,15,0,8" TextWrapping="Wrap"/>
+                    <TextBlock Name="txtWinDetails" Text="Nhan nut Quet de nhan thong tin chi tiet ve phien ban va kenh kich hoat." FontSize="11.5" Foreground="#64748B" TextWrapping="Wrap" LineHeight="16"/>
                 </StackPanel>
             </Border>
 
             <Border Name="cardOffice" Background="#111827" BorderBrush="#1F2937" BorderThickness="1.5" CornerRadius="10" Margin="6,0,6,0" Padding="18">
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="📂" FontSize="16" Margin="0,0,8,0"/>
+                        <TextBlock Text="" FontSize="16" Margin="0,0,8,0"/>
                         <TextBlock Text="MICROSOFT OFFICE" FontSize="11" FontWeight="Bold" Foreground="#94A3B8" VerticalAlignment="Center"/>
                     </StackPanel>
-                    <TextBlock Name="txtOfficeStatus" Text="Chưa kiểm tra" FontSize="18" FontWeight="Bold" Foreground="#F1F5F9" Margin="0,15,0,8" TextWrapping="Wrap"/>
-                    <TextBlock Name="txtOfficeDetails" Text="Nhấn nút Quét để phát hiện các phiên bản Office được cài đặt trên hệ thống." FontSize="11.5" Foreground="#64748B" TextWrapping="Wrap" LineHeight="16"/>
+                    <TextBlock Name="txtOfficeStatus" Text="Chua kiem tra" FontSize="18" FontWeight="Bold" Foreground="#F1F5F9" Margin="0,15,0,8" TextWrapping="Wrap"/>
+                    <TextBlock Name="txtOfficeDetails" Text="Nhan nut Quet de phat hien cac phien ban Office duoc cai dat tren he thong." FontSize="11.5" Foreground="#64748B" TextWrapping="Wrap" LineHeight="16"/>
                 </StackPanel>
             </Border>
 
             <Border Name="cardCrack" Background="#111827" BorderBrush="#1F2937" BorderThickness="1.5" CornerRadius="10" Margin="12,0,0,0" Padding="18">
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="🛡️" FontSize="16" Margin="0,0,8,0"/>
-                        <TextBlock Text="PHẦN MỀM BẺ KHÓA / CRACK" FontSize="11" FontWeight="Bold" Foreground="#94A3B8" VerticalAlignment="Center"/>
+                        <TextBlock Text="" FontSize="16" Margin="0,0,8,0"/>
+                        <TextBlock Text="PHAN MEM BE KHOA / CRACK" FontSize="11" FontWeight="Bold" Foreground="#94A3B8" VerticalAlignment="Center"/>
                     </StackPanel>
-                    <TextBlock Name="txtCrackStatus" Text="Chưa kiểm tra" FontSize="18" FontWeight="Bold" Foreground="#F1F5F9" Margin="0,15,0,8" TextWrapping="Wrap"/>
-                    <TextBlock Name="txtCrackDetails" Text="Quét chữ ký số ứng dụng cài đặt, tệp Hosts và tác vụ ngầm để phát hiện crack..." FontSize="11.5" Foreground="#64748B" TextWrapping="Wrap" LineHeight="16"/>
+                    <TextBlock Name="txtCrackStatus" Text="Chua kiem tra" FontSize="18" FontWeight="Bold" Foreground="#F1F5F9" Margin="0,15,0,8" TextWrapping="Wrap"/>
+                    <TextBlock Name="txtCrackDetails" Text="Quet chu ky so ung dung cai dat, tep Hosts va tac vu ngam de phat hien crack..." FontSize="11.5" Foreground="#64748B" TextWrapping="Wrap" LineHeight="16"/>
                 </StackPanel>
             </Border>
         </UniformGrid>
@@ -831,7 +831,7 @@ $xamlContent = @'
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
-            <TextBlock Text="KẾT QUẢ QUÉT / THỰC THI CHI TIẾT" FontSize="12" FontWeight="Bold" Foreground="#94A3B8" Margin="0,0,0,8"/>
+            <TextBlock Text="KET QUA QUET / THUC THI CHI TIET" FontSize="12" FontWeight="Bold" Foreground="#94A3B8" Margin="0,0,0,8"/>
             <TextBox Name="txtLogs" Grid.Row="1" Background="#070A13" Foreground="#38BDF8" BorderBrush="#1E293B" BorderThickness="1.5" FontFamily="Consolas" FontSize="12.5" IsReadOnly="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" AcceptsReturn="True" Padding="15"/>
         </Grid>
 
@@ -841,9 +841,9 @@ $xamlContent = @'
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="Trạng thái hệ thống: Sẵn sàng | Đang chạy với quyền Administrator" FontSize="11" Foreground="#475569" VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="0" Text="Trang thai he thong: San sang | Dang chay voi quyen Administrator" FontSize="11" Foreground="#475569" VerticalAlignment="Center"/>
             <StackPanel Grid.Column="1" Orientation="Horizontal">
-                <Button Name="btnExport" Content="Xuất Báo Cáo (.txt)" Width="160" Height="32" Background="#1E293B" Foreground="#E2E8F0" FontWeight="SemiBold" FontSize="12" BorderThickness="0" Cursor="Hand" IsEnabled="False">
+                <Button Name="btnExport" Content="Xuat Bao Cao (.txt)" Width="160" Height="32" Background="#1E293B" Foreground="#E2E8F0" FontWeight="SemiBold" FontSize="12" BorderThickness="0" Cursor="Hand" IsEnabled="False">
                     <Button.Resources>
                         <Style TargetType="Border">
                             <Setter Property="CornerRadius" Value="4"/>
@@ -856,7 +856,7 @@ $xamlContent = @'
 </Window>
 '@
 
-# 8. KHỞI CHẠY VÀ RÀNG BUỘC SỰ KIỆN GIAO DIỆN
+# 8. KHOI CHAY VA RANG BUOC SU KIEN GIAO DIEN
 try {
     $xmlReader = New-Object System.Xml.XmlNodeReader ([xml]$xamlContent)
     $Window = [Windows.Markup.XamlReader]::Load($xmlReader)
@@ -877,44 +877,44 @@ try {
 
     $globalReportText = ""
 
-    # SỰ KIỆN CLICK: QUÉT HỆ THỐNG
+    # SU KIEN CLICK: QUET HE THONG
     $UI_btnScan.Add_Click({
         $UI_btnScan.IsEnabled = $false
         $UI_btnUninstallCracks.IsEnabled = $false
         $UI_btnRemoveKMS.IsEnabled = $false
-        $UI_btnScan.Content = "ĐANG QUÉT..."
+        $UI_btnScan.Content = "DANG QUET..."
         
-        $UI_txtWinStatus.Text = "Đang xử lý..."
-        $UI_txtOfficeStatus.Text = "Đang xử lý..."
-        $UI_txtCrackStatus.Text = "Đang xử lý..."
+        $UI_txtWinStatus.Text = "Dang xu ly..."
+        $UI_txtOfficeStatus.Text = "Dang xu ly..."
+        $UI_txtCrackStatus.Text = "Dang xu ly..."
         
         [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Background, [action]{})
         
         $win = Get-WindowsActivation
         if ($win.RawStatus -eq 1) {
-            $UI_txtWinStatus.Text = "Đã kích hoạt ✅"
+            $UI_txtWinStatus.Text = "Da kich hoat [OK]"
             $UI_txtWinStatus.Foreground = $BrushGreen
             $UI_cardWin.BorderBrush = $BorderGreen
         } elseif ($win.RawStatus -eq 5 -or $win.RawStatus -eq 0) {
-            $UI_txtWinStatus.Text = "Chưa kích hoạt ⚠️"
+            $UI_txtWinStatus.Text = "Chua kich hoat [!]"
             $UI_txtWinStatus.Foreground = $BrushYellow
             $UI_cardWin.BorderBrush = $BorderNormal
         } else {
-            $UI_txtWinStatus.Text = "Trạng thái khác ⚠️"
+            $UI_txtWinStatus.Text = "Trang thai khac [!]"
             $UI_txtWinStatus.Foreground = $BrushYellow
             $UI_cardWin.BorderBrush = $BorderNormal
         }
         $winServerInfo = ""
-        if ($win.KMSServer -and $win.KMSServer -ne "Không phát hiện") {
-            $winServerInfo = "`n⚠️ Máy chủ KMS: $($win.KMSServer)"
+        if ($win.KMSServer -and $win.KMSServer -ne "Khong phat hien") {
+            $winServerInfo = "`n[!] May chu KMS: $($win.KMSServer)"
         }
-        $UI_txtWinDetails.Text = "Kênh kích hoạt: $($win.Channel)`nPhiên bản: $($win.ProductName)$winServerInfo"
+        $UI_txtWinDetails.Text = "Kenh kich hoat: $($win.Channel)`nPhien ban: $($win.ProductName)$winServerInfo"
         
         $officeList = Get-OfficeActivation
         if ($officeList.Count -eq 0) {
-            $UI_txtOfficeStatus.Text = "Chưa cài đặt / Không tìm thấy 📂"
+            $UI_txtOfficeStatus.Text = "Chua cai dat / Khong tim thay "
             $UI_txtOfficeStatus.Foreground = $BrushSlate
-            $UI_txtOfficeDetails.Text = "Không tìm thấy phiên bản Microsoft Office nào đã đăng ký khóa bản quyền."
+            $UI_txtOfficeDetails.Text = "Khong tim thay phien ban Microsoft Office nao da dang ky khoa ban quyen."
             $UI_cardOffice.BorderBrush = $BorderNormal
         } else {
             $isOfficeActivated = $true
@@ -922,19 +922,19 @@ try {
             foreach ($off in $officeList) {
                 $briefName = $off.ProductName
                 if ($briefName.Length -gt 35) { $briefName = $briefName.Substring(0, 32) + "..." }
-                $officeBrief += "• $briefName : $($off.Status)`n"
-                if ($off.Status -ne "Đã kích hoạt" -and $off.Status -notlike "*Kích hoạt qua*") {
+                $officeBrief += "- $briefName : $($off.Status)`n"
+                if ($off.Status -ne "Da kich hoat" -and $off.Status -notlike "*Kich hoat qua*") {
                     $isOfficeActivated = $false
                 }
             }
             $UI_txtOfficeDetails.Text = $officeBrief.Trim()
             
             if ($isOfficeActivated) {
-                $UI_txtOfficeStatus.Text = "Đã kích hoạt ✅"
+                $UI_txtOfficeStatus.Text = "Da kich hoat [OK]"
                 $UI_txtOfficeStatus.Foreground = $BrushGreen
                 $UI_cardOffice.BorderBrush = $BorderGreen
             } else {
-                $UI_txtOfficeStatus.Text = "Có phiên bản chưa kích hoạt ⚠️"
+                $UI_txtOfficeStatus.Text = "Co phien ban chua kich hoat [!]"
                 $UI_txtOfficeStatus.Foreground = $BrushYellow
                 $UI_cardOffice.BorderBrush = $BorderNormal
             }
@@ -942,67 +942,67 @@ try {
         
         $crack = Get-CrackDetection
         if ($crack.Risks.Count -eq 0) {
-            $UI_txtCrackStatus.Text = "Hệ thống An toàn ✅"
+            $UI_txtCrackStatus.Text = "He thong An toan [OK]"
             $UI_txtCrackStatus.Foreground = $BrushGreen
             $UI_cardCrack.BorderBrush = $BorderGreen
-            $UI_txtCrackDetails.Text = "Không phát hiện bất kỳ tiến trình, tác vụ chạy ngầm, file hoặc tệp tin hosts nào bị can thiệp bởi công cụ bẻ khóa."
+            $UI_txtCrackDetails.Text = "Khong phat hien bat ky tien trinh, tac vu chay ngam, file hoac tep tin hosts nao bi can thiep boi cong cu be khoa."
         } else {
-            $UI_txtCrackStatus.Text = "Phát hiện vết bẻ khóa ❌"
+            $UI_txtCrackStatus.Text = "Phat hien vet be khoa ❌"
             $UI_txtCrackStatus.Foreground = $BrushRed
             $UI_cardCrack.BorderBrush = $BorderRed
-            $UI_txtCrackDetails.Text = "Phát hiện $($crack.Risks.Count) điểm cảnh báo bẻ khóa phần mềm hệ thống. Xem chi tiết bên dưới!"
+            $UI_txtCrackDetails.Text = "Phat hien $($crack.Risks.Count) diem canh bao be khoa phan mem he thong. Xem chi tiet ben duoi!"
         }
         
         $log = New-Object System.Text.StringBuilder
         $log.AppendLine("==================================================================================") | Out-Null
-        $log.AppendLine("                   BÁO CÁO KIỂM TRA BẢN QUYỀN VÀ PHÁT HIỆN CRACK                  ") | Out-Null
+        $log.AppendLine("                   BAO CAO KIEM TRA BAN QUYEN VA PHAT HIEN CRACK                  ") | Out-Null
         $log.AppendLine("==================================================================================") | Out-Null
-        $log.AppendLine("Thời gian thực hiện : $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')") | Out-Null
-        $log.AppendLine("Tên máy tính        : $env:COMPUTERNAME") | Out-Null
-        $log.AppendLine("Hệ điều hành        : $( (Get-CimInstance Win32_OperatingSystem).Caption ) (Phiên bản: $((Get-CimInstance Win32_OperatingSystem).Version))") | Out-Null
+        $log.AppendLine("Thoi gian thuc hien : $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')") | Out-Null
+        $log.AppendLine("Ten may tinh        : $env:COMPUTERNAME") | Out-Null
+        $log.AppendLine("He dieu hanh        : $( (Get-CimInstance Win32_OperatingSystem).Caption ) (Phien ban: $((Get-CimInstance Win32_OperatingSystem).Version))") | Out-Null
         $log.AppendLine("----------------------------------------------------------------------------------") | Out-Null
         $log.AppendLine() | Out-Null
         
-        $log.AppendLine("[1] KẾT QUẢ KIỂM TRA WINDOWS:") | Out-Null
-        $log.AppendLine(" - Sản phẩm          : $($win.ProductName)") | Out-Null
-        $log.AppendLine(" - Kênh phân phối    : $($win.Channel)") | Out-Null
-        $log.AppendLine(" - Trạng thái        : $($win.StatusText)") | Out-Null
-        if ($win.KMSServer -and $win.KMSServer -ne "Không phát hiện") {
-            $log.AppendLine(" - Máy chủ KMS (Lậu) : $($win.KMSServer) (Phát hiện cấu hình bản quyền hướng ngoại)") | Out-Null
+        $log.AppendLine("[1] KET QUA KIEM TRA WINDOWS:") | Out-Null
+        $log.AppendLine(" - San pham          : $($win.ProductName)") | Out-Null
+        $log.AppendLine(" - Kenh phan phoi    : $($win.Channel)") | Out-Null
+        $log.AppendLine(" - Trang thai        : $($win.StatusText)") | Out-Null
+        if ($win.KMSServer -and $win.KMSServer -ne "Khong phat hien") {
+            $log.AppendLine(" - May chu KMS (Lau) : $($win.KMSServer) (Phat hien cau hinh ban quyen huong ngoai)") | Out-Null
         }
         $log.AppendLine() | Out-Null
         
-        $log.AppendLine("[2] KẾT QUẢ KIỂM TRA OFFICE:") | Out-Null
+        $log.AppendLine("[2] KET QUA KIEM TRA OFFICE:") | Out-Null
         if ($officeList.Count -eq 0) {
-            $log.AppendLine(" - Không tìm thấy thông tin sản phẩm Microsoft Office.") | Out-Null
+            $log.AppendLine(" - Khong tim thay thong tin san pham Microsoft Office.") | Out-Null
         } else {
             foreach ($off in $officeList) {
-                $log.AppendLine(" - Tên phiên bản   : $($off.ProductName)") | Out-Null
-                $log.AppendLine("   Trạng thái      : $($off.Status)") | Out-Null
-                $log.AppendLine("   Kênh giấy phép  : $($off.Channel)") | Out-Null
-                $log.AppendLine("   Nguồn phát hiện : $($off.Source)") | Out-Null
+                $log.AppendLine(" - Ten phien ban   : $($off.ProductName)") | Out-Null
+                $log.AppendLine("   Trang thai      : $($off.Status)") | Out-Null
+                $log.AppendLine("   Kenh giay phep  : $($off.Channel)") | Out-Null
+                $log.AppendLine("   Nguon phat hien : $($off.Source)") | Out-Null
                 if ($off.KMSServer) {
-                    $log.AppendLine("   Máy chủ KMS     : $($off.KMSServer)") | Out-Null
+                    $log.AppendLine("   May chu KMS     : $($off.KMSServer)") | Out-Null
                 }
                 $log.AppendLine("   --------------------------------------") | Out-Null
             }
         }
         $log.AppendLine() | Out-Null
         
-        $log.AppendLine("[3] ĐÁNH GIÁ VÀ PHÁT HIỆN CRACK/BẺ KHÓA:") | Out-Null
+        $log.AppendLine("[3] DANH GIA VA PHAT HIEN CRACK/BE KHOA:") | Out-Null
         if ($crack.Risks.Count -eq 0) {
-            $log.AppendLine(" -> [AN TOÀN] Không phát hiện bất kỳ tiến trình, tác vụ, tệp tin hosts hay thư mục bẻ khóa nào.") | Out-Null
+            $log.AppendLine(" -> [AN TOAN] Khong phat hien bat ky tien trinh, tac vu, tep tin hosts hay thu muc be khoa nao.") | Out-Null
         } else {
-            $log.AppendLine(" -> [CẢNH BÁO NGUY HIỂM] Phát hiện $($crack.Risks.Count) cảnh báo bẻ khóa phần mềm:") | Out-Null
+            $log.AppendLine(" -> [CANH BAO NGUY HIEM] Phat hien $($crack.Risks.Count) canh bao be khoa phan mem:") | Out-Null
             for ($i = 0; $i -lt $crack.Risks.Count; $i++) {
-                $log.AppendLine("   * Cảnh báo: $($crack.Risks[$i])") | Out-Null
-                $log.AppendLine("     Mô tả   : $($crack.Details[$i])") | Out-Null
+                $log.AppendLine("   * Canh bao: $($crack.Risks[$i])") | Out-Null
+                $log.AppendLine("     Mo ta   : $($crack.Details[$i])") | Out-Null
                 $log.AppendLine("     ----------------------------------------------------------------") | Out-Null
             }
             $log.AppendLine() | Out-Null
-            $log.AppendLine("KHUYẾN NGHỊ BẢO MẬT:") | Out-Null
-            $log.AppendLine(" - Các phần mềm bẻ khóa có nguy cơ bị cài cắm mã độc lấy cắp dữ liệu doanh nghiệp.") | Out-Null
-            $log.AppendLine(" - Nên gỡ bỏ bản crack và sử dụng các phiên bản chính hãng hoặc mã nguồn mở thay thế.") | Out-Null
+            $log.AppendLine("KHUYEN NGHI BAO MAT:") | Out-Null
+            $log.AppendLine(" - Cac phan mem be khoa co nguy co bi cai cam ma doc lay cap du lieu doanh nghiep.") | Out-Null
+            $log.AppendLine(" - Nen go bo ban crack va su dung cac phien ban chinh hang hoac ma nguon mo thay the.") | Out-Null
         }
         $log.AppendLine() | Out-Null
         $log.AppendLine("==================================================================================") | Out-Null
@@ -1013,21 +1013,21 @@ try {
         $UI_btnScan.IsEnabled = $true
         $UI_btnUninstallCracks.IsEnabled = $true
         $UI_btnRemoveKMS.IsEnabled = $true
-        $UI_btnScan.Content = "🔍 BẮT ĐẦU QUÉT"
+        $UI_btnScan.Content = "BAT DAU QUET"
         $UI_btnExport.IsEnabled = $true
     })
 
-    # SỰ KIỆN CLICK: GỠ CÀI ĐẶT HÀNG LOẠT ỨNG DỤNG CRACK
+    # SU KIEN CLICK: GO CAI DAT HANG LOAT UNG DUNG CRACK
     $UI_btnUninstallCracks.Add_Click({
-        $confirm = [System.Windows.MessageBox]::Show("Bạn có chắc chắn muốn TỰ ĐỘNG GỠ CÀI ĐẶT HÀNG LOẠT tất cả các phần mềm thương mại bị phát hiện bẻ khóa trên máy tính không?", "Xác nhận gỡ crack hàng loạt", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
+        $confirm = [System.Windows.MessageBox]::Show("Ban co chac chan muon TU DONG GO CAI DAT HANG LOAT tat ca cac phan mem thuong mai bi phat hien be khoa tren may tinh khong?", "Xac nhan go crack hang loat", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
         if ($confirm -ne [System.Windows.MessageBoxResult]::Yes) { return }
         
         $UI_btnScan.IsEnabled = $false
         $UI_btnUninstallCracks.IsEnabled = $false
         $UI_btnRemoveKMS.IsEnabled = $false
-        $UI_btnUninstallCracks.Content = "ĐANG GỠ HÀNG LOẠT..."
+        $UI_btnUninstallCracks.Content = "DANG GO HANG LOAT..."
         
-        $UI_txtLogs.Text = "Đang tiến hành gỡ cài đặt tự động hàng loạt tất cả phần mềm bẻ khóa... Vui lòng đợi."
+        $UI_txtLogs.Text = "Dang tien hanh go cai dat tu dong hang loat tat ca phan mem be khoa... Vui long doi."
         [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Background, [action]{})
         
         $res = Start-CrackedAppsUninstallProcess
@@ -1037,27 +1037,27 @@ try {
         $UI_btnScan.IsEnabled = $true
         $UI_btnUninstallCracks.IsEnabled = $true
         $UI_btnRemoveKMS.IsEnabled = $true
-        $UI_btnUninstallCracks.Content = "⚡ GỠ CRACK HÀNG LOẠT"
+        $UI_btnUninstallCracks.Content = "GO CRACK HANG LOAT"
         $UI_btnExport.IsEnabled = $true
         
         if ($res.Count -gt 0) {
-            [System.Windows.MessageBox]::Show("Đã hoàn tất quá trình gỡ cài đặt hàng loạt $($res.Count) phần mềm bị crack!", "Thông báo", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+            [System.Windows.MessageBox]::Show("Da hoan tat qua trinh go cai dat hang loat $($res.Count) phan mem bi crack!", "Thong bao", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
         } else {
-            [System.Windows.MessageBox]::Show("Không tìm thấy phần mềm bên thứ ba nào đang bị crack trên hệ thống.", "Thông báo", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+            [System.Windows.MessageBox]::Show("Khong tim thay phan mem ben thu ba nao dang bi crack tren he thong.", "Thong bao", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
         }
     })
 
-    # SỰ KIỆN CLICK: GỠ BỎ KMS LẬU
+    # SU KIEN CLICK: GO BO KMS LAU
     $UI_btnRemoveKMS.Add_Click({
-        $confirm = [System.Windows.MessageBox]::Show("Bạn có chắc chắn muốn gỡ bỏ máy chủ KMS lậu và làm sạch hệ thống không?`n`nHành động này sẽ gỡ Product Key KMS lậu và đưa Windows trở về trạng thái chưa kích hoạt chuẩn.", "Xác nhận gỡ KMS", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
+        $confirm = [System.Windows.MessageBox]::Show("Ban co chac chan muon go bo may chu KMS lau va lam sach he thong khong?`n`nHanh dong nay se go Product Key KMS lau va dua Windows tro ve trang thai chua kich hoat chuan.", "Xac nhan go KMS", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
         if ($confirm -ne [System.Windows.MessageBoxResult]::Yes) { return }
         
         $UI_btnScan.IsEnabled = $false
         $UI_btnUninstallCracks.IsEnabled = $false
         $UI_btnRemoveKMS.IsEnabled = $false
-        $UI_btnRemoveKMS.Content = "ĐANG GỠ BỎ..."
+        $UI_btnRemoveKMS.Content = "DANG GO BO..."
         
-        $UI_txtLogs.Text = "Đang tiến hành gỡ bỏ bản quyền KMS lậu và dọn dẹp hệ thống... Vui lòng đợi trong giây lát."
+        $UI_txtLogs.Text = "Dang tien hanh go bo ban quyen KMS lau va don dep he thong... Vui long doi trong giay lat."
         [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Background, [action]{})
         
         $resultText = Start-KMSRemovalProcess
@@ -1067,12 +1067,12 @@ try {
         $UI_btnScan.IsEnabled = $true
         $UI_btnUninstallCracks.IsEnabled = $true
         $UI_btnRemoveKMS.IsEnabled = $true
-        $UI_btnRemoveKMS.Content = "🗑️ GỠ BỎ KMS LẬU"
+        $UI_btnRemoveKMS.Content = "GO BO KMS LAU"
         $UI_btnExport.IsEnabled = $true
-        [System.Windows.MessageBox]::Show("Đã hoàn tất quá trình gỡ bỏ bản quyền KMS lậu và làm sạch hệ thống!", "Thông báo", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+        [System.Windows.MessageBox]::Show("Da hoan tat qua trinh go bo ban quyen KMS lau va lam sach he thong!", "Thong bao", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
     })
 
-    # SỰ KIỆN CLICK: XUẤT BÁO CÁO
+    # SU KIEN CLICK: XUAT BAO CAO
     $UI_btnExport.Add_Click({
         if (-not $script:globalReportText) { return }
         $saveFileDialog = New-Object Microsoft.Win32.SaveFileDialog
@@ -1082,22 +1082,22 @@ try {
         if ($saveFileDialog.ShowDialog() -eq $true) {
             try {
                 $script:globalReportText | Out-File -FilePath $saveFileDialog.FileName -Encoding utf8
-                [System.Windows.MessageBox]::Show("Xuất báo cáo thành công tại:`n$($saveFileDialog.FileName)", "Thông báo", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+                [System.Windows.MessageBox]::Show("Xuat bao cao thanh cong tai:`n$($saveFileDialog.FileName)", "Thong bao", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
             } catch {
-                [System.Windows.MessageBox]::Show("Lỗi khi ghi tệp: $($_.Exception.Message)", "Lỗi", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+                [System.Windows.MessageBox]::Show("Loi khi ghi tep: $($_.Exception.Message)", "Loi", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
             }
         }
     })
 
-    # HIỂN THỊ CỬA SỔ
+    # HIEN THI CUA SO
     $Window.ShowDialog() | Out-Null
 
 } catch {
     Write-Host "========================================================" -ForegroundColor Red
-    Write-Host "LỖI THỰC THI GIAO DIỆN:" -ForegroundColor Red
+    Write-Host "LOI THUC THI GIAO DIEN:" -ForegroundColor Red
     Write-Host $_.Exception.Message -ForegroundColor Red
     Write-Host $_.ScriptStackTrace -ForegroundColor Red
     Write-Host "========================================================" -ForegroundColor Red
-    Write-Host "Nhấn phím bất kỳ để đóng..." -ForegroundColor Yellow
+    Write-Host "Nhan phim bat ky de dong..." -ForegroundColor Yellow
     [void]$Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 }
