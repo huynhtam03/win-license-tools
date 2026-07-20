@@ -670,10 +670,32 @@ function Start-KMSRemovalProcess {
     }
     $log.AppendLine() | Out-Null
 
+    # Buoc 7: Go bo khoa san pham Office/Project/Visio KMS con sot lai qua WMI
+    $log.AppendLine("[BUOC 7] Dang go bo cac Product Key Office/Project/Visio KMS lau qua WMI...") | Out-Null
+    try {
+        $officeProducts = Get-CimInstance -ClassName SoftwareLicensingProduct -Filter "Description like '%Office%' and PartialProductKey is not null" -ErrorAction SilentlyContinue
+        $removedOfficeKeys = 0
+        foreach ($p in $officeProducts) {
+            if ($p.Description -like "*KMS*" -or $p.Description -like "*VOLUME_KMS*") {
+                $log.AppendLine(" -> Dang go khoa san pham: $($p.Name)") | Out-Null
+                $res = Invoke-CimMethod -InputObject $p -MethodName "UninstallProductKey" -ErrorAction SilentlyContinue
+                $removedOfficeKeys++
+            }
+        }
+        if ($removedOfficeKeys -eq 0) {
+            $log.AppendLine(" -> Khong phat hien khoa san pham Office KMS nao can go.") | Out-Null
+        } else {
+            $log.AppendLine(" -> Da go bo thanh cong $removedOfficeKeys khoa san pham Office KMS.") | Out-Null
+        }
+    } catch {
+        $log.AppendLine(" -> Loi khi go khoa san pham Office KMS: $($_.Exception.Message)") | Out-Null
+    }
+    $log.AppendLine() | Out-Null
+
     $log.AppendLine("==================================================================================") | Out-Null
     $log.AppendLine("                    HOAN TAT QUA TRINH GO BO BAN QUYEN KMS LAU                    ") | Out-Null
-    $log.AppendLine(" - Trang thai Windows hien tai da tro ve chua kich hoat (Default / Unlicensed).") | Out-Null
-    $log.AppendLine(" - Ban co the nhap khoa ban quyen chinh hang (Retail / OEM / MAK) de kich hoat lai.") | Out-Null
+    $log.AppendLine(" - Trang thai Windows/Office hien tai da duoc lam sach cac thong tin KMS lau.") | Out-Null
+    $log.AppendLine(" - Ban co the nhap khoa ban quyen chinh hang de kich hoat lai.") | Out-Null
     $log.AppendLine("==================================================================================") | Out-Null
 
     return $log.ToString()
@@ -700,7 +722,8 @@ function Start-OfficeUninstallProcess {
     $officeApps = @()
     foreach ($app in $installedApps) {
         $name = $app.DisplayName
-        if ((($name -like "*Microsoft Office*") -or ($name -like "*Microsoft 365*")) -and 
+        if ((($name -like "*Microsoft Office*") -or ($name -like "*Microsoft 365*") -or ($name -like "*Microsoft Project*") -or ($name -like "*Microsoft Visio*")) -and 
+
             ($name -notlike "*Proof*") -and 
             ($name -notlike "*Language*") -and 
             ($name -notlike "*Database Engine*") -and 
