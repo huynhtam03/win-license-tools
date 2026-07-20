@@ -1,4 +1,4 @@
-﻿<#
+<#
     Scan-CompanyNetwork.ps1
     Công cụ rà soát bản quyền và crack trên toàn bộ máy tính công ty từ xa.
     Yêu cầu: Chạy dưới quyền Domain Admin hoặc tài khoản có quyền WinRM (PowerShell Remoting) trên các máy trạm.

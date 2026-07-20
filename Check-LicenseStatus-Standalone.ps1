@@ -1,4 +1,4 @@
-﻿<#
+<#
     Check-LicenseStatus-Standalone.ps1 - Công cụ TẤT-CẢ-TRONG-MỘT (All-In-One Edition)
     Bao gồm:
     1. Kiểm tra bản quyền Windows & Microsoft Office.

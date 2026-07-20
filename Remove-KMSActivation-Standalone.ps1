@@ -1,4 +1,4 @@
-﻿<#
+<#
     Remove-KMSActivation-Standalone.ps1 - Công cụ gỡ bỏ bản quyền KMS lậu và làm sạch hệ thống Windows.
     Tác dụng:
     1. Gỡ bỏ địa chỉ máy chủ KMS lậu (slmgr /ckms).

@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Công cụ kiểm tra bản quyền Windows, Office và phát hiện phần mềm crack.
 .DESCRIPTION

@@ -1,4 +1,4 @@
-﻿<#
+<#
     LicenseChecker.ps1 - Module chứa các hàm quét bản quyền hệ thống và phát hiện bẻ khóa.
 #>
 
