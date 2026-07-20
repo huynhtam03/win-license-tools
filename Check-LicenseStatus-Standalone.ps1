@@ -708,12 +708,12 @@ function Start-KMSRemovalProcess {
                 
                 if ($keysToUninstall.Count -gt 0) {
                     foreach ($k5 in $keysToUninstall) {
-                        $log.AppendLine(" -> Dang go Product Key Office/Project 5 ky tu cuoi ($k5)...") | Out-Null
+                        $log.AppendLine(" -> Dang go Product Key Office/Project (5 ky tu cuoi: $k5)...") | Out-Null
                         $unpRes = cscript.exe //NoLogo "$ospp" /unpkey:$k5 2>&1
                         $log.AppendLine("    Ket qua: $($unpRes -join ' ')") | Out-Null
                     }
                 } else {
-                    $log.AppendLine(" -> Khong tim thay Product Key Office/Project KMS nao qua OSPP /dstatus.") | Out-Null
+                    $log.AppendLine(" -> Khong tim thay Product Key qua OSPP /dstatus.") | Out-Null
                 }
             } catch {
                 $log.AppendLine(" -> Loi khi thao tac OSPP: $($_.Exception.Message)") | Out-Null
@@ -724,6 +724,22 @@ function Start-KMSRemovalProcess {
     if (-not $osppFound) {
         $log.AppendLine(" -> Khong tim thay tep tin ospp.vbs tren cac duong dan mac dinh.") | Out-Null
     }
+
+    # 7.3 Go khoa san pham qua WMI va xoa Registry KMS
+    $log.AppendLine(" -> Dang quet va go toan bo khoa san pham Office/Project/Visio trong WMI...") | Out-Null
+    try {
+        $wmiProds = Get-CimInstance -ClassName SoftwareLicensingProduct -ErrorAction SilentlyContinue | Where-Object { 
+            ($_.PartialProductKey -or $_.LicenseStatus -eq 1 -or $_.LicenseStatus -eq 5) -and 
+            ($_.Name -like "*Office*" -or $_.Name -like "*Project*" -or $_.Name -like "*Visio*" -or $_.Description -like "*Office*" -or $_.Description -like "*Project*" -or $_.Description -like "*Visio*")
+        }
+        foreach ($wp in $wmiProds) {
+            $log.AppendLine(" -> Dang go khoa WMI san pham: $($wp.Name)...") | Out-Null
+            try { Invoke-CimMethod -InputObject $wp -MethodName "UninstallProductKey" -ErrorAction SilentlyContinue | Out-Null } catch {}
+        }
+    } catch {}
+
+    Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\OfficeSoftwareProtectionPlatform" -Name "KeyManagementServiceMachine" -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path "HKLM:\SOFTWARE\WOW6432Node\Microsoft\OfficeSoftwareProtectionPlatform" -Name "KeyManagementServiceMachine" -ErrorAction SilentlyContinue
     $log.AppendLine() | Out-Null
 
     $log.AppendLine("==================================================================================") | Out-Null
@@ -892,13 +908,9 @@ function Start-OfficeUninstallProcess {
 
     # 3.2 Xoa qua WMI SoftwareLicensingProduct (Cho tat ca cac san pham con lai)
     try {
-        $wmiProducts = Get-CimInstance -ClassName SoftwareLicensingProduct -Filter "PartialProductKey is not null" -ErrorAction SilentlyContinue | Where-Object { 
-            $_.Name -like "*Office*" -or 
-            $_.Name -like "*Project*" -or 
-            $_.Name -like "*Visio*" -or 
-            $_.Description -like "*Office*" -or 
-            $_.Description -like "*Project*" -or 
-            $_.Description -like "*Visio*"
+        $wmiProducts = Get-CimInstance -ClassName SoftwareLicensingProduct -ErrorAction SilentlyContinue | Where-Object { 
+            ($_.PartialProductKey -or $_.LicenseStatus -eq 1 -or $_.LicenseStatus -eq 5) -and 
+            ($_.Name -like "*Office*" -or $_.Name -like "*Project*" -or $_.Name -like "*Visio*" -or $_.Description -like "*Office*" -or $_.Description -like "*Project*" -or $_.Description -like "*Visio*")
         }
         foreach ($p in $wmiProducts) {
             $log.AppendLine(" -> Dang go khoa WMI san pham: $($p.Name)...") | Out-Null
@@ -907,6 +919,9 @@ function Start-OfficeUninstallProcess {
             } catch {}
         }
     } catch {}
+
+    Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\OfficeSoftwareProtectionPlatform" -Name "KeyManagementServiceMachine" -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path "HKLM:\SOFTWARE\WOW6432Node\Microsoft\OfficeSoftwareProtectionPlatform" -Name "KeyManagementServiceMachine" -ErrorAction SilentlyContinue
 
     $log.AppendLine() | Out-Null
     $log.AppendLine("==================================================================================") | Out-Null
