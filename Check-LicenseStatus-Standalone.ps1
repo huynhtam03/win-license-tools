@@ -1,18 +1,12 @@
-<#
-    Check-LicenseStatus-Standalone.ps1 - Cong cu TAT-CA-TRONG-MOT (All-In-One Edition)
-    Bao gom:
-    1. Kiem tra ban quyen Windows & Microsoft Office.
-    2. Quet dong cac phan mem ben thu ba bi crack (MiniTool, Adobe, IDM, AutoCAD...).
-    3. GO CAI DAT TU DONG HANG LOAT (Bulk/Batch Uninstall) cac phan mem bi crack.
-    4. Go bo ban quyen KMS lau (slmgr /ckms, /upk, /cpky), lam sach file Hosts, go bo tac vu/dich vu be khoa.
-#>
+# Check-LicenseStatus-Standalone.ps1 - Cong cu IT Helpdesk Modern Dark Dashboard All-In-One
 
 [CmdletBinding()]
 param (
     [switch]$ConsoleOnly,
     [switch]$RemoveKMS,
     [switch]$UninstallCracks,
-    [switch]$UninstallOffice
+    [switch]$UninstallOffice,
+    [switch]$CleanTemp
 )
 
 # 1. THIET LAP THU VIEN WPF
@@ -37,7 +31,19 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
     Exit
 }
 
-# 3. CAC HAM QUET BAN QUYEN VA PHAT HIEN BE KHOA
+# 3. CAC HAM TRUY VAN HE THONG & IT HELPDESK
+function Get-SystemInfoSummary {
+    $ip = "127.0.0.1"
+    $mac = "00:00:00:00:00:00"
+    try {
+        $net = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" } | Select-Object -First 1
+        if ($net) { $ip = $net.IPAddress }
+        $nic = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
+        if ($nic) { $mac = $nic.MacAddress }
+    } catch {}
+    return @{ ComputerName = $env:COMPUTERNAME; IP = $ip; MAC = $mac }
+}
+
 function Get-WindowsActivation {
     $result = @{
         Status = "Unknown"
@@ -57,13 +63,13 @@ function Get-WindowsActivation {
             $result.RawStatus = $win.LicenseStatus
             
             switch ($win.LicenseStatus) {
-                0 { $result.StatusText = "Chua kich hoat (Unlicensed)"; $result.Status = "Unlicensed" }
-                1 { $result.StatusText = "Da kich hoat (Licensed)"; $result.Status = "Licensed" }
-                2 { $result.StatusText = "An han ban dau (OOB Grace)"; $result.Status = "Grace" }
-                3 { $result.StatusText = "An han het han (OOT Grace)"; $result.Status = "Grace" }
-                4 { $result.StatusText = "An han khong chinh hang (Non-genuine)"; $result.Status = "Warning" }
-                5 { $result.StatusText = "Cho kich hoat / Het han (Notification)"; $result.Status = "Notification" }
-                6 { $result.StatusText = "An han mo rong (Extended Grace)"; $result.Status = "Grace" }
+                0 { $result.StatusText = "Chua kich hoat (Unlicensed)"; $result.Status = "Unlicensed"; $result.IsGenuine = $false }
+                1 { $result.StatusText = "Da kich hoat (Licensed)"; $result.Status = "Licensed"; $result.IsGenuine = $true }
+                2 { $result.StatusText = "An han ban dau (OOB Grace)"; $result.Status = "Grace"; $result.IsGenuine = $false }
+                3 { $result.StatusText = "An han het han (OOT Grace)"; $result.Status = "Grace"; $result.IsGenuine = $false }
+                4 { $result.StatusText = "An han khong chinh hang (Non-genuine)"; $result.Status = "Warning"; $result.IsGenuine = $false }
+                5 { $result.StatusText = "Cho kich hoat / Het han (Notification)"; $result.Status = "Notification"; $result.IsGenuine = $false }
+                6 { $result.StatusText = "An han mo rong (Extended Grace)"; $result.Status = "Grace"; $result.IsGenuine = $false }
                 default { $result.StatusText = "Khong xac dinh"; $result.Status = "Unknown" }
             }
             
@@ -78,7 +84,7 @@ function Get-WindowsActivation {
                 $result.KMSServer = "$($licService.KeyManagementServiceMachine):$($licService.KeyManagementServicePort)"
             }
             
-            $result.Details = "San pham: $($win.Name)`nPhan nhom: $($result.Channel)`nTrang thai: $($result.StatusText)`nMay chu kich hoat KMS: $($result.KMSServer)"
+            $result.Details = "San pham: $($win.Name)`nPhan nhom: $($result.Channel)`nTrang thai: $($result.StatusText)`nMay chu KMS: $($result.KMSServer)"
         } else {
             $result.StatusText = "Khong co san pham hoat dong"
             $result.Details = "Khong the tim thay thong tin giay phep Windows hop le qua WMI."
@@ -182,19 +188,6 @@ function Get-OfficeActivation {
                     }
                 }
             }
-            break
-        }
-    }
-    
-    $c2rInstalled = Get-ItemProperty -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*Microsoft 365*" }
-    if ($c2rInstalled -and ($officeList.Count -eq 0 -or -not ($officeList | Where-Object { $_.ProductName -like "*365*" -or $_.ProductName -like "*Subscription*" }))) {
-        $officeList += [PSCustomObject]@{
-            ProductName = "Microsoft 365 Apps (Dang ky thue bao)"
-            Status = "Da cai dat (Kich hoat qua Tai khoan Microsoft)"
-            Channel = "Subscription (ClickToRun)"
-            KMSServer = ""
-            GraceRemaining = "N/A"
-            Source = "Registry"
         }
     }
     return $officeList
@@ -203,133 +196,65 @@ function Get-OfficeActivation {
 function Get-CrackDetection {
     $risks = @()
     $details = @()
-    
-    # 1. Kiem tra Hook DLL
-    $hookPaths = @(
-        "$env:windir\System32\SppExtComObjHook.dll",
-        "$env:windir\SysWOW64\SppExtComObjHook.dll",
-        "$env:windir\SppExtComObjHook.dll",
-        "$env:windir\System32\sppextcomobj.exe.local",
-        "$env:windir\System32\sppextcomobj_hook.dll"
-    )
-    foreach ($path in $hookPaths) {
-        if (Test-Path $path) {
-            $risks += "Phat hien file hook KMS: $path"
-            $details += "Tep tin '$path' thuong do KMSpico hoac KMSAuto cai dat de bypass may chu ban quyen cua Microsoft."
-        }
+
+    $crackTasks = Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { 
+        $_.TaskName -like "*AutoKMS*" -or 
+        $_.TaskName -like "*KMSAuto*" -or 
+        $_.TaskName -like "*KMSConnection*" -or 
+        $_.TaskName -like "*AutoPico*" -or 
+        $_.TaskName -like "*HEU_KMS*" -or
+        $_.TaskName -like "*KMS-Activator*"
     }
-    
-    # 2. Kiem tra file Hosts
-    $hostsPath = "$env:windir\System32\drivers\etc\hosts"
-    if (Test-Path $hostsPath) {
-        $hostsLines = Get-Content $hostsPath -ErrorAction SilentlyContinue
-        $redirects = @()
-        $thirdPartyDomains = @{
-            "minitool.com" = "MiniTool Partition Wizard / Data Recovery"
-            "adobe.com" = "Adobe Creative Cloud (Photoshop, Illustrator...)"
-            "adobelogin.com" = "Adobe Creative Cloud"
-            "autodesk.com" = "Autodesk (AutoCAD, 3ds Max...)"
-            "corel.com" = "CorelDraw"
-            "registeridm.com" = "Internet Download Manager (IDM)"
-            "internetdownloadmanager.com" = "Internet Download Manager (IDM)"
-            "sketchup.com" = "Trimble SketchUp"
-            "ccleaner.com" = "CCleaner"
-            "chaosgroup.com" = "Chaos Group V-Ray"
-            "solidworks.com" = "SolidWorks"
-        }
-        $blockedApps = @()
-        foreach ($line in $hostsLines) {
-            $clean = $line.Trim()
-            if ($clean -and -not $clean.StartsWith("#")) {
-                if ($clean -like "*microsoft*" -or $clean -like "*activation*" -or $clean -like "*kms*") {
-                    if ($clean -match "(127\.0\.0\.1|0\.0\.0\.0)\s+(.*)") { $redirects += $matches[2] }
-                }
-                foreach ($domain in $thirdPartyDomains.Keys) {
-                    if ($clean -like "*$domain*" -and $clean -match "(127\.0\.0\.1|0\.0\.0\.0)") {
-                        $appName = $thirdPartyDomains[$domain]
-                        if ($blockedApps -notcontains $appName) { $blockedApps += $appName }
-                    }
-                }
-            }
-        }
-        if ($redirects.Count -gt 0) {
-            $risks += "Sua doi tep tin Hosts (Dinh tuyen chan Microsoft)"
-            $details += "Tep tin Hosts chan ket noi xac minh cua Microsoft (vi du: $($redirects -join ', '))."
-        }
-        if ($blockedApps.Count -gt 0) {
-            $risks += "Chan may chu xac thuc ban quyen phan mem trong file Hosts"
-            $details += "Tep Hosts chan ket noi den hang phan mem: $($blockedApps -join ', '). Cho thay cac phan mem nay dang dung ban crack."
-        }
-    }
-    
-    # 3. Kiem tra Scheduled Tasks
-    $suspiciousTaskNames = @("*AutoKMS*", "*KMSAuto*", "*KMSConnection*", "*AutoPico*", "*HEU_KMS*", "*KMS-Activator*")
-    foreach ($pattern in $suspiciousTaskNames) {
-        $tasks = Get-ScheduledTask -TaskName $pattern -ErrorAction SilentlyContinue
-        foreach ($task in $tasks) {
-            $risks += "Tac vu chay ngam be khoa: $($task.TaskName)"
-            $details += "Tac vu tu dong gia han KMS lau chay ngam tai '$($task.TaskPath)'."
-        }
-    }
-    
-    # 4. Kiem tra Services
-    $suspiciousServices = @("Service_KMS", "KMSpico Service", "KMSConnectionMonitor", "AutoKMS")
-    foreach ($srvName in $suspiciousServices) {
-        $srv = Get-Service -Name $srvName -ErrorAction SilentlyContinue
-        if ($srv) {
-            $risks += "Dich vu KMS lau chay nen: $($srv.DisplayName) ($srvName)"
-            $details += "Dich vu gia lap KMS noi bo dang hoat dong."
+    if ($crackTasks) {
+        foreach ($t in $crackTasks) {
+            $risks += "Phat hien Tac vu lap lich be khoa (Scheduled Task): $($t.TaskName)"
+            $details += "Tac vu ngam '$($t.TaskName)' dang duoc len lich chay tai '$($t.TaskPath)'."
         }
     }
 
-    # 5. Kiem tra Processes
-    $suspiciousProcessNames = @("KMSpico", "AutoKMS", "KMSAuto", "KMSConnectionMonitor", "HEU_KMS", "HEU_KMS_Activator")
-    foreach ($procName in $suspiciousProcessNames) {
-        $proc = Get-Process -Name $procName -ErrorAction SilentlyContinue
-        if ($proc) {
-            $risks += "Tien trinh be khoa dang chay: $procName"
-            $details += "Tien trinh '$procName' (PID: $($proc.Id)) dang chay ngam thoi gian thuc."
+    $crackServices = Get-Service -ErrorAction SilentlyContinue | Where-Object { 
+        $_.Name -like "*AutoKMS*" -or 
+        $_.Name -like "*KMSpico*" -or 
+        $_.Name -like "*KMSConnection*" -or 
+        $_.Name -like "*Service_KMS*" 
+    }
+    if ($crackServices) {
+        foreach ($s in $crackServices) {
+            $risks += "Phat hien Dich vu be khoa chay ngam (Service): $($s.DisplayName)"
+            $details += "Dich vu '$($s.DisplayName)' ($($s.Name)) dang o trang thai $($s.Status)."
         }
     }
-    
-    # 6. Kiem tra cac thu muc chua cong cu be khoa he thong
-    $crackFolders = @(
-        "${env:ProgramFiles}\KMSpico",
-        "${env:ProgramFiles(x86)}\KMSpico",
-        "${env:ProgramData}\KMSAuto",
-        "${env:ProgramData}\KMSAutoS",
-        "${env:ProgramFiles(x86)}\Microsoft Toolkit",
-        "C:\Windows\Setup\Scripts"
+
+    $hostsPath = "$env:windir\System32\drivers\etc\hosts"
+    if (Test-Path $hostsPath) {
+        $hostsContent = Get-Content $hostsPath -ErrorAction SilentlyContinue
+        $kmsBlocks = $hostsContent | Where-Object { 
+            $_ -and (-not $_.StartsWith("#")) -and (
+                $_ -like "*kms*" -or 
+                $_ -like "*microsoft.com*" -or 
+                $_ -like "*activation*" -or
+                $_ -like "*adobe*" -or
+                $_ -like "*autodesk*"
+            )
+        }
+        if ($kmsBlocks) {
+            $risks += "File Hosts bi can thiep de chan xac minh ban quyen"
+            $details += "Phat hien $($kmsBlocks.Count) dong cau hinh Redirect/Block trong file Hosts ($hostsPath)."
+        }
+    }
+
+    $suspiciousPaths = @(
+        "$env:windir\AutoKMS\AutoKMS.exe",
+        "$env:ProgramFiles\KMSpico\KMSpico.exe",
+        "${env:ProgramFiles(x86)}\KMSpico\KMSpico.exe",
+        "$env:windir\KMSAuto Net.exe",
+        "C:\ProgramData\KMSAutoS\KMSAuto X64.exe"
     )
-    foreach ($folder in $crackFolders) {
-        if (Test-Path $folder) {
-            if ($folder -eq "C:\Windows\Setup\Scripts") {
-                $scripts = Get-ChildItem -Path $folder -Filter "*.bat" -ErrorAction SilentlyContinue
-                if ($scripts) {
-                    $risks += "Thu muc he thong chua Script kich hoat lau: $folder"
-                    $details += "Thu muc chua script *.bat cau hinh ban quyen tu dong khi cai Win."
-                }
-            } else {
-                $risks += "Phat hien thu muc phan mem be khoa he thong: $folder"
-                $details += "Thu muc cai dat ung dung be khoa ton tai o '$folder'."
-            }
+    foreach ($path in $suspiciousPaths) {
+        if (Test-Path $path) {
+            $risks += "Phat hien tep tin cong cu be khoa tren o đia: $path"
+            $details += "Tep tin thuc thi be khoa nguy hiem ton tai tai '$path'."
         }
-    }
-    
-    # 7. QUET DONG PHAN MEM BEN THU 3 (Dynamic Third-Party Crack Scan)
-    $targetKeywords = @("MiniTool", "Adobe", "Autodesk", "AutoCAD", "Corel", "Camtasia", "TechSmith", "Internet Download Manager", "IDM", "Wondershare", "CCleaner", "SketchUp", "SolidWorks", "WinZip", "WinRAR")
-    $targetFilesMap = @{
-        "MiniTool" = @("partitionwizard.dll", "partitionwizard.exe", "PowerDataRecoveryCore.dll", "PowerDataRecovery.exe")
-        "Internet Download Manager" = @("idm.core.dll", "IDMan.exe", "IDMGrHlp.exe")
-        "IDM" = @("idm.core.dll", "IDMan.exe", "IDMGrHlp.exe")
-        "Adobe" = @("amtlib.dll", "Acrobat.exe", "Photoshop.exe", "Illustrator.exe")
-        "Autodesk" = @("acad.exe", "AdskLicensingAgent.exe")
-        "Corel" = @("CorelDRW.exe", "PASMUTILITY.dll")
-        "SketchUp" = @("SketchUp.exe")
-        "Camtasia" = @("CamtasiaStudio.exe", "Camtasia.exe")
-        "Wondershare" = @("WondershareHelper.exe", "Filmora.exe")
-        "CCleaner" = @("CCleaner.exe", "CCleaner64.exe")
-        "SolidWorks" = @("sldworks.exe")
     }
 
     $regUninstallPaths = @(
@@ -337,66 +262,14 @@ function Get-CrackDetection {
         "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
         "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
     )
-    $installedApps = Get-ItemProperty -Path $regUninstallPaths -ErrorAction SilentlyContinue | 
-        Where-Object { $_.DisplayName } |
-        Select-Object DisplayName, InstallLocation, UninstallString, QuietUninstallString
-        
-    foreach ($app in $installedApps) {
-        $matchedKeyword = $null
-        foreach ($kw in $targetKeywords) {
-            if ($app.DisplayName -like "*$kw*") {
-                $matchedKeyword = $kw
-                break
-            }
-        }
-        if ($matchedKeyword) {
-            $installDir = $app.InstallLocation
-            if (-not $installDir -and $app.UninstallString) {
-                if ($app.UninstallString -match '^["]?([^"]+\.[eE][xX][eE])["]?') {
-                    $exePath = $matches[1]
-                    if (Test-Path $exePath) { $installDir = Split-Path $exePath }
-                }
-            }
-            if ($installDir -and (Test-Path $installDir)) {
-                $mapKey = $null
-                foreach ($k in $targetFilesMap.Keys) {
-                    if ($matchedKeyword -like "*$k*" -or $k -like "*$matchedKeyword*") {
-                        $mapKey = $k
-                        break
-                    }
-                }
-                if ($mapKey) {
-                    $filesToAudit = $targetFilesMap[$mapKey]
-                    foreach ($fileName in $filesToAudit) {
-                        $foundFiles = Get-ChildItem -Path $installDir -Filter $fileName -Recurse -Depth 2 -ErrorAction SilentlyContinue
-                        foreach ($file in $foundFiles) {
-                            $sig = Get-AuthenticodeSignature -FilePath $file.FullName -ErrorAction SilentlyContinue
-                            if ($sig -and $sig.Status -ne 'Valid') {
-                                $risks += "Phat hien $($app.DisplayName) bi Crack (Mat chu ky so)"
-                                $details += "Tep tin '$($file.FullName)' cua '$($app.DisplayName)' mat chu ky so hop le (Trang thai: $($sig.Status)), chung to tep tin nay da bi crack (patch)."
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    $installedApps = Get-ItemProperty -Path $regUninstallPaths -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName }
+    $crackKeywords = @("AutoKMS", "KMSpico", "KMSAuto", "MiniTool", "CCleaner Pro Crack", "Adobe GenP", "Patch", "Crack", "Keygen")
     
-    # 8. Cau hinh KMS cua Windows & Office
-    $licService = Get-CimInstance -ClassName SoftwareLicensingService -ErrorAction SilentlyContinue
-    if ($licService -and $licService.KeyManagementServiceMachine) {
-        $kmsMachine = $licService.KeyManagementServiceMachine
-        $knownKmsServers = @("kms8.msguides.com", "kms.digiboy.ir", "kms.lotro.cc", "kms.chinancce.com", "zh.us.to", "kms.msguides.com", "kms.spacespaces.xyz")
-        if ($kmsMachine -eq "127.0.0.1" -or $kmsMachine -eq "localhost" -or $kmsMachine -eq "::1") {
-            $risks += "Windows cau hinh may chu KMS noi bo (Localhost)"
-            $details += "Ban quyen Windows tro ve chinh may tinh ($kmsMachine). Dau hieu be khoa gia lap cuc bo."
-        } else {
-            foreach ($srv in $knownKmsServers) {
-                if ($kmsMachine -like "*$srv*") {
-                    $risks += "Windows su dung may chu KMS be khoa cong cong: $kmsMachine"
-                    $details += "Ban quyen he thong tro toi may chu KMS mien phi tren Internet."
-                    break
-                }
+    foreach ($app in $installedApps) {
+        foreach ($kw in $crackKeywords) {
+            if ($app.DisplayName -like "*$kw*") {
+                $risks += "Phan mem thuong mai bi Crack/Be khoa: $($app.DisplayName)"
+                $details += "Ung dung '$($app.DisplayName)' duoc ghi nhan trong Registry voi InstallLocation: $($app.InstallLocation)."
             }
         }
     }
@@ -410,7 +283,6 @@ function Get-CrackDetection {
         }
     }
 
-    # 9. Kiem tra cong KMS 1688
     try {
         $kmsPort = Get-NetTCPConnection -LocalPort 1688 -State Listen -ErrorAction SilentlyContinue
         if ($kmsPort) {
@@ -425,7 +297,6 @@ function Get-CrackDetection {
         }
     }
 
-    # 10. Kiem tra Registry cua phan mem be khoa
     $crackRegs = @("HKLM:\SOFTWARE\KMSAuto", "HKLM:\SOFTWARE\KMSAutoS", "HKLM:\SOFTWARE\KMSpico", "HKCU:\Software\KMSAuto", "HKCU:\Software\KMSAutoS")
     foreach ($reg in $crackRegs) {
         if (Test-Path $reg) {
@@ -440,11 +311,178 @@ function Get-CrackDetection {
     }
 }
 
-# 4. HAM GO CAI DAT HANG LOAT (BULK UNINSTALL) CAC PHAN MEM CRACK BEN THU 3
+# 4. THUC THI CAC HAM XU LY CONG VIEC (LOGIC)
+function Start-KMSRemovalProcess {
+    $log = New-Object System.Text.StringBuilder
+    $log.AppendLine("==================================================================================") | Out-Null
+    $log.AppendLine("        BAT DAU QUA TRINH GO BO BAN QUYEN KMS LAU VA LAM SACH HE THONG            ") | Out-Null
+    $log.AppendLine("==================================================================================") | Out-Null
+    $log.AppendLine("Thoi gian thuc hien : $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')") | Out-Null
+    $log.AppendLine("Ten may tinh        : $env:COMPUTERNAME") | Out-Null
+    $log.AppendLine("----------------------------------------------------------------------------------") | Out-Null
+    $log.AppendLine() | Out-Null
+
+    # Buoc 1
+    $log.AppendLine("[BUOC 1] Dang go bo cau hinh may chu KMS Windows (slmgr /ckms)...") | Out-Null
+    try {
+        $ckmsResult = cscript.exe //NoLogo "$env:windir\System32\slmgr.vbs" /ckms 2>&1
+        $log.AppendLine(" -> Ket qua slmgr /ckms: $($ckmsResult -join ' ')") | Out-Null
+    } catch {
+        $log.AppendLine(" -> Loi khi chay slmgr /ckms: $($_.Exception.Message)") | Out-Null
+    }
+
+    # Buoc 2
+    $log.AppendLine("[BUOC 2] Dang go bo Product Key KMS Windows (slmgr /upk)...") | Out-Null
+    try {
+        $upkResult = cscript.exe //NoLogo "$env:windir\System32\slmgr.vbs" /upk 2>&1
+        $log.AppendLine(" -> Ket qua slmgr /upk: $($upkResult -join ' ')") | Out-Null
+    } catch {
+        $log.AppendLine(" -> Loi khi chay slmgr /upk: $($_.Exception.Message)") | Out-Null
+    }
+
+    # Buoc 3
+    $log.AppendLine("[BUOC 3] Dang xoa thong tin Product Key Windows khoi Registry (slmgr /cpky)...") | Out-Null
+    try {
+        $cpkyResult = cscript.exe //NoLogo "$env:windir\System32\slmgr.vbs" /cpky 2>&1
+        $log.AppendLine(" -> Ket qua slmgr /cpky: $($cpkyResult -join ' ')") | Out-Null
+    } catch {
+        $log.AppendLine(" -> Loi khi chay slmgr /cpky: $($_.Exception.Message)") | Out-Null
+    }
+
+    # Buoc 4
+    $log.AppendLine("[BUOC 4] Dang kiem tra va lam sach tep tin Hosts...") | Out-Null
+    $hostsPath = "$env:windir\System32\drivers\etc\hosts"
+    if (Test-Path $hostsPath) {
+        try {
+            $lines = Get-Content $hostsPath -ErrorAction SilentlyContinue
+            $cleanLines = @()
+            $removedCount = 0
+            
+            foreach ($line in $lines) {
+                $clean = $line.Trim()
+                if ($clean -and -not $clean.StartsWith("#") -and ($clean -like "*microsoft*" -or $clean -like "*activation*" -or $clean -like "*kms*")) {
+                    $log.AppendLine(" -> Da go bo dong chan: $clean") | Out-Null
+                    $removedCount++
+                } else {
+                    $cleanLines += $line
+                }
+            }
+            if ($removedCount -gt 0) {
+                $cleanLines | Set-Content $hostsPath -Encoding utf8 -Force
+                $log.AppendLine(" -> Da lam sach $removedCount dong cau hinh chan trong file Hosts!") | Out-Null
+            } else {
+                $log.AppendLine(" -> Tep Hosts khong chua cau hinh chan may chu Microsoft.") | Out-Null
+            }
+        } catch {
+            $log.AppendLine(" -> Loi khi chinh sua file Hosts: $($_.Exception.Message)") | Out-Null
+        }
+    }
+
+    # Buoc 5
+    $log.AppendLine("[BUOC 5] Dang don dep cac tac vu be khoa tu dong (Scheduled Tasks)...") | Out-Null
+    $suspiciousTaskNames = @("*AutoKMS*", "*KMSAuto*", "*KMSConnection*", "*AutoPico*", "*HEU_KMS*", "*KMS-Activator*")
+    $removedTasks = 0
+    foreach ($pattern in $suspiciousTaskNames) {
+        $tasks = Get-ScheduledTask -TaskName $pattern -ErrorAction SilentlyContinue
+        foreach ($t in $tasks) {
+            try {
+                Unregister-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -Confirm:$false -ErrorAction SilentlyContinue
+                $log.AppendLine(" -> Da go bo tac vu be khoa: $($t.TaskName) ($($t.TaskPath))") | Out-Null
+                $removedTasks++
+            } catch {}
+        }
+    }
+    if ($removedTasks -eq 0) {
+        $log.AppendLine(" -> Khong phat hien tac vu chay ngam be khoa nao.") | Out-Null
+    }
+
+    # Buoc 6
+    $log.AppendLine("[BUOC 6] Dang don dep cac dich vu KMS lau (Services)...") | Out-Null
+    $suspiciousServices = @("Service_KMS", "KMSpico Service", "KMSConnectionMonitor", "AutoKMS")
+    $removedSrvs = 0
+    foreach ($srvName in $suspiciousServices) {
+        $srv = Get-Service -Name $srvName -ErrorAction SilentlyContinue
+        if ($srv) {
+            try {
+                Stop-Service -Name $srvName -Force -ErrorAction SilentlyContinue
+                sc.exe delete $srvName | Out-Null
+                $log.AppendLine(" -> Da dung va go bo dich vu KMS lau: $($srv.DisplayName) ($srvName)") | Out-Null
+                $removedSrvs++
+            } catch {}
+        }
+    }
+    if ($removedSrvs -eq 0) {
+        $log.AppendLine(" -> Khong phat hien dich vu KMS lau chay ngam nao.") | Out-Null
+    }
+    $log.AppendLine() | Out-Null
+
+    # Buoc 7
+    $log.AppendLine("[BUOC 7] Dang go bo ban quyen KMS cua Office/Project/Visio qua ospp.vbs va WMI...") | Out-Null
+    
+    $officePaths = @(
+        "${env:ProgramFiles}\Microsoft Office\Office16",
+        "${env:ProgramFiles(x86)}\Microsoft Office\Office16",
+        "${env:ProgramFiles}\Microsoft Office\Office15",
+        "${env:ProgramFiles(x86)}\Microsoft Office\Office15"
+    )
+    
+    $osppFound = $false
+    foreach ($path in $officePaths) {
+        $ospp = Join-Path $path "ospp.vbs"
+        if (Test-Path $ospp) {
+            $osppFound = $true
+            $log.AppendLine(" -> Phat hien OSPP tool tai: $ospp") | Out-Null
+            try { cscript.exe //NoLogo "$ospp" /remkms 2>&1 | Out-Null } catch {}
+            try {
+                $dstatusOut = cscript.exe //NoLogo "$ospp" /dstatus 2>&1
+                $keysToUninstall = @()
+                foreach ($line in $dstatusOut) {
+                    if ($line -match "Last 5 characters of installed product key:\s*([A-Za-z0-9]{5})") {
+                        $key5 = $matches[1]
+                        if ($key5 -and $keysToUninstall -notcontains $key5) {
+                            $keysToUninstall += $key5
+                        }
+                    }
+                }
+                foreach ($k5 in $keysToUninstall) {
+                    $log.AppendLine(" -> Dang go Product Key OSPP (5 ky tu cuoi: $k5)...") | Out-Null
+                    cscript.exe //NoLogo "$ospp" /unpkey:$k5 2>&1 | Out-Null
+                }
+            } catch {}
+        }
+    }
+    
+    if (-not $osppFound) {
+        $log.AppendLine(" -> Khong tim thay tep tin ospp.vbs tren cac duong dan mac dinh.") | Out-Null
+    }
+
+    $log.AppendLine(" -> Dang quet va go toan bo khoa san pham Office/Project/Visio trong WMI...") | Out-Null
+    try {
+        $wmiProds = Get-CimInstance -ClassName SoftwareLicensingProduct -ErrorAction SilentlyContinue | Where-Object { 
+            ($_.PartialProductKey -or $_.LicenseStatus -eq 1 -or $_.LicenseStatus -eq 5) -and 
+            ($_.Name -like "*Office*" -or $_.Name -like "*Project*" -or $_.Name -like "*Visio*" -or $_.Description -like "*Office*" -or $_.Description -like "*Project*" -or $_.Description -like "*Visio*")
+        }
+        foreach ($wp in $wmiProds) {
+            $log.AppendLine(" -> Dang go khoa WMI san pham: $($wp.Name)...") | Out-Null
+            try { Invoke-CimMethod -InputObject $wp -MethodName "UninstallProductKey" -ErrorAction SilentlyContinue | Out-Null } catch {}
+        }
+    } catch {}
+
+    Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\OfficeSoftwareProtectionPlatform" -Name "KeyManagementServiceMachine" -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path "HKLM:\SOFTWARE\WOW6432Node\Microsoft\OfficeSoftwareProtectionPlatform" -Name "KeyManagementServiceMachine" -ErrorAction SilentlyContinue
+    $log.AppendLine() | Out-Null
+
+    $log.AppendLine("==================================================================================") | Out-Null
+    $log.AppendLine("                    HOAN TAT QUA TRINH GO BO BAN QUYEN KMS LAU                    ") | Out-Null
+    $log.AppendLine("==================================================================================") | Out-Null
+
+    return $log.ToString()
+}
+
 function Start-CrackedAppsUninstallProcess {
     $log = New-Object System.Text.StringBuilder
     $log.AppendLine("==================================================================================") | Out-Null
-    $log.AppendLine("          BAT DAU QUA TRINH GO CAI DAT HANG LOAT (BULK UNINSTALL) CAC APP CRACK   ") | Out-Null
+    $log.AppendLine("        BAT DAU QUA TRINH GO CAI DAT HANG LOAT CAC APP CRACK BEN THU BA            ") | Out-Null
     $log.AppendLine("==================================================================================") | Out-Null
     $log.AppendLine("Thoi gian thuc hien : $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')") | Out-Null
     $log.AppendLine("Ten may tinh        : $env:COMPUTERNAME") | Out-Null
@@ -528,16 +566,13 @@ function Start-CrackedAppsUninstallProcess {
                     $argList = $argList.Trim()
 
                     $p = if ([string]::IsNullOrWhiteSpace($argList)) {
-                        $log.AppendLine("    Lenh thuc thi: `"$exe`"") | Out-Null
                         Start-Process -FilePath $exe -PassThru -ErrorAction SilentlyContinue
                     } else {
-                        $log.AppendLine("    Lenh thuc thi: `"$exe`" $argList") | Out-Null
                         Start-Process -FilePath $exe -ArgumentList $argList -PassThru -ErrorAction SilentlyContinue
                     }
                     
                     if ($p) { $p.WaitForExit(60000) }
                 } else {
-                    $log.AppendLine("    Thuc thi lenh CMD: $cleanUnCmd") | Out-Null
                     $p = Start-Process cmd.exe -ArgumentList "/c `"$cleanUnCmd`"" -PassThru -ErrorAction SilentlyContinue
                     if ($p) { $p.WaitForExit(60000) }
                 }
@@ -547,211 +582,17 @@ function Start-CrackedAppsUninstallProcess {
             } catch {
                 $log.AppendLine(" -> Loi khi go $($app.DisplayName): $($_.Exception.Message)") | Out-Null
             }
-        } else {
-            $log.AppendLine(" -> Bo qua $($app.DisplayName): Khong tim thay UninstallString trong Registry.") | Out-Null
         }
-        $log.AppendLine("----------------------------------------------------------------------------------") | Out-Null
     }
     
+    $log.AppendLine() | Out-Null
     $log.AppendLine("==================================================================================") | Out-Null
-    $log.AppendLine("       HOAN TAT GO CAI DAT HANG LOAT $uninstalledCount / $($crackedAppsFound.Count) PHAN MEM BE KHOA           ") | Out-Null
+    $log.AppendLine("       HOAN TAT GO CAI DAT HANG LOAT $uninstalledCount PHAN MEM BE KHOA           ") | Out-Null
     $log.AppendLine("==================================================================================") | Out-Null
 
     return @{ Log = $log.ToString(); Count = $uninstalledCount }
 }
 
-# 5. HAM GO BO KMS LAU VA DON DEP HE THONG
-function Start-KMSRemovalProcess {
-    $log = New-Object System.Text.StringBuilder
-    $log.AppendLine("==================================================================================") | Out-Null
-    $log.AppendLine("              BAT DAU QUA TRINH GO BO BAN QUYEN KMS LAU VA BAO TRI SYSTEM         ") | Out-Null
-    $log.AppendLine("==================================================================================") | Out-Null
-    $log.AppendLine("Thoi gian thuc hien : $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')") | Out-Null
-    $log.AppendLine("Ten may tinh        : $env:COMPUTERNAME") | Out-Null
-    $log.AppendLine("----------------------------------------------------------------------------------") | Out-Null
-    $log.AppendLine() | Out-Null
-
-    # Buoc 1: Xoa cau hinh may chu KMS (slmgr /ckms)
-    $log.AppendLine("[BUOC 1] Dang go bo cau hinh may chu KMS (Clear KMS Server)...") | Out-Null
-    try {
-        $ckmsResult = cscript.exe //NoLogo "$env:windir\System32\slmgr.vbs" /ckms 2>&1
-        $log.AppendLine(" -> Ket qua slmgr /ckms: $($ckmsResult -join ' ')") | Out-Null
-    } catch {
-        $log.AppendLine(" -> Loi khi chay slmgr /ckms: $($_.Exception.Message)") | Out-Null
-    }
-    $log.AppendLine() | Out-Null
-
-    # Buoc 2: Go bo khoa san pham KMS hien tai (slmgr /upk)
-    $log.AppendLine("[BUOC 2] Dang go bo Product Key KMS hien tai (Uninstall Product Key)...") | Out-Null
-    try {
-        $upkResult = cscript.exe //NoLogo "$env:windir\System32\slmgr.vbs" /upk 2>&1
-        $log.AppendLine(" -> Ket qua slmgr /upk: $($upkResult -join ' ')") | Out-Null
-    } catch {
-        $log.AppendLine(" -> Loi khi chay slmgr /upk: $($_.Exception.Message)") | Out-Null
-    }
-    $log.AppendLine() | Out-Null
-
-    # Buoc 3: Xoa thong tin Product Key khoi Registry (slmgr /cpky)
-    $log.AppendLine("[BUOC 3] Dang xoa thong tin Product Key khoi Registry (Clear Product Key from Registry)...") | Out-Null
-    try {
-        $cpkyResult = cscript.exe //NoLogo "$env:windir\System32\slmgr.vbs" /cpky 2>&1
-        $log.AppendLine(" -> Ket qua slmgr /cpky: $($cpkyResult -join ' ')") | Out-Null
-    } catch {
-        $log.AppendLine(" -> Loi khi chay slmgr /cpky: $($_.Exception.Message)") | Out-Null
-    }
-    $log.AppendLine() | Out-Null
-
-    # Buoc 4: Lam sach tep tin Hosts (Go chan cac may chu xac minh Microsoft)
-    $log.AppendLine("[BUOC 4] Dang kiem tra va lam sach tep tin Hosts...") | Out-Null
-    $hostsPath = "$env:windir\System32\drivers\etc\hosts"
-    if (Test-Path $hostsPath) {
-        try {
-            $lines = Get-Content $hostsPath -ErrorAction SilentlyContinue
-            $cleanLines = @()
-            $removedCount = 0
-            
-            foreach ($line in $lines) {
-                $clean = $line.Trim()
-                if ($clean -and -not $clean.StartsWith("#") -and ($clean -like "*microsoft*" -or $clean -like "*activation*" -or $clean -like "*kms*")) {
-                    $log.AppendLine(" -> Da go bo dong chan: $clean") | Out-Null
-                    $removedCount++
-                } else {
-                    $cleanLines += $line
-                }
-            }
-            if ($removedCount -gt 0) {
-                $cleanLines | Set-Content $hostsPath -Encoding utf8 -Force
-                $log.AppendLine(" -> Da lam sach $removedCount dong cau hinh chan trong file Hosts thanh cong!") | Out-Null
-            } else {
-                $log.AppendLine(" -> Tep Hosts khong chua cau hinh chan may chu Microsoft.") | Out-Null
-            }
-        } catch {
-            $log.AppendLine(" -> Loi khi chinh sua file Hosts: $($_.Exception.Message)") | Out-Null
-        }
-    }
-    $log.AppendLine() | Out-Null
-
-    # Buoc 5: Tim va go bo Tac vu chay ngam be khoa (Scheduled Tasks)
-    $log.AppendLine("[BUOC 5] Dang don dep cac tac vu be khoa tu dong (Scheduled Tasks)...") | Out-Null
-    $suspiciousTaskNames = @("*AutoKMS*", "*KMSAuto*", "*KMSConnection*", "*AutoPico*", "*HEU_KMS*", "*KMS-Activator*")
-    $removedTasks = 0
-    foreach ($pattern in $suspiciousTaskNames) {
-        $tasks = Get-ScheduledTask -TaskName $pattern -ErrorAction SilentlyContinue
-        foreach ($t in $tasks) {
-            try {
-                Unregister-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -Confirm:$false -ErrorAction SilentlyContinue
-                $log.AppendLine(" -> Da go bo tac vu be khoa: $($t.TaskName) ($($t.TaskPath))") | Out-Null
-                $removedTasks++
-            } catch {}
-        }
-    }
-    if ($removedTasks -eq 0) {
-        $log.AppendLine(" -> Khong phat hien tac vu chay ngam be khoa nao.") | Out-Null
-    }
-    $log.AppendLine() | Out-Null
-
-    # Buoc 6: Tim va dung/go bo Dich vu KMS lau (Services)
-    $log.AppendLine("[BUOC 6] Dang don dep cac dich vu KMS lau (Services)...") | Out-Null
-    $suspiciousServices = @("Service_KMS", "KMSpico Service", "KMSConnectionMonitor", "AutoKMS")
-    $removedSrvs = 0
-    foreach ($srvName in $suspiciousServices) {
-        $srv = Get-Service -Name $srvName -ErrorAction SilentlyContinue
-        if ($srv) {
-            try {
-                Stop-Service -Name $srvName -Force -ErrorAction SilentlyContinue
-                sc.exe delete $srvName | Out-Null
-                $log.AppendLine(" -> Da dung va go bo dich vu KMS lau: $($srv.DisplayName) ($srvName)") | Out-Null
-                $removedSrvs++
-            } catch {}
-        }
-    }
-    if ($removedSrvs -eq 0) {
-        $log.AppendLine(" -> Khong phat hien dich vu KMS lau chay ngam nao.") | Out-Null
-    }
-    $log.AppendLine() | Out-Null
-
-    # Buoc 7: Go bo ban quyen Office / Project / Visio KMS qua ospp.vbs
-    $log.AppendLine("[BUOC 7] Dang go bo ban quyen KMS cua Office/Project/Visio qua ospp.vbs...") | Out-Null
-    
-    $officePaths = @(
-        "${env:ProgramFiles}\Microsoft Office\Office16",
-        "${env:ProgramFiles(x86)}\Microsoft Office\Office16",
-        "${env:ProgramFiles}\Microsoft Office\Office15",
-        "${env:ProgramFiles(x86)}\Microsoft Office\Office15"
-    )
-    
-    $osppFound = $false
-    foreach ($path in $officePaths) {
-        $ospp = Join-Path $path "ospp.vbs"
-        if (Test-Path $ospp) {
-            $osppFound = $true
-            $log.AppendLine(" -> Phat hien trinh quan ly OSPP tai: $ospp") | Out-Null
-            
-            # 7.1 Xoa may chu KMS cua Office/Project/Visio
-            try {
-                $remKmsRes = cscript.exe //NoLogo "$ospp" /remkms 2>&1
-                $log.AppendLine(" -> Ket qua xoa may chu KMS Office (/remkms): $($remKmsRes -join ' ')") | Out-Null
-            } catch {}
-
-            # 7.2 Lay danh sach 5 ky tu cuoi cua Product Key va go bo
-            try {
-                $dstatusOut = cscript.exe //NoLogo "$ospp" /dstatus 2>&1
-                $keysToUninstall = @()
-                foreach ($line in $dstatusOut) {
-                    if ($line -match "Last 5 characters of installed product key:\s*([A-Za-z0-9]{5})") {
-                        $key5 = $matches[1]
-                        if ($key5 -and $keysToUninstall -notcontains $key5) {
-                            $keysToUninstall += $key5
-                        }
-                    }
-                }
-                
-                if ($keysToUninstall.Count -gt 0) {
-                    foreach ($k5 in $keysToUninstall) {
-                        $log.AppendLine(" -> Dang go Product Key Office/Project (5 ky tu cuoi: $k5)...") | Out-Null
-                        $unpRes = cscript.exe //NoLogo "$ospp" /unpkey:$k5 2>&1
-                        $log.AppendLine("    Ket qua: $($unpRes -join ' ')") | Out-Null
-                    }
-                } else {
-                    $log.AppendLine(" -> Khong tim thay Product Key qua OSPP /dstatus.") | Out-Null
-                }
-            } catch {
-                $log.AppendLine(" -> Loi khi thao tac OSPP: $($_.Exception.Message)") | Out-Null
-            }
-        }
-    }
-    
-    if (-not $osppFound) {
-        $log.AppendLine(" -> Khong tim thay tep tin ospp.vbs tren cac duong dan mac dinh.") | Out-Null
-    }
-
-    # 7.3 Go khoa san pham qua WMI va xoa Registry KMS
-    $log.AppendLine(" -> Dang quet va go toan bo khoa san pham Office/Project/Visio trong WMI...") | Out-Null
-    try {
-        $wmiProds = Get-CimInstance -ClassName SoftwareLicensingProduct -ErrorAction SilentlyContinue | Where-Object { 
-            ($_.PartialProductKey -or $_.LicenseStatus -eq 1 -or $_.LicenseStatus -eq 5) -and 
-            ($_.Name -like "*Office*" -or $_.Name -like "*Project*" -or $_.Name -like "*Visio*" -or $_.Description -like "*Office*" -or $_.Description -like "*Project*" -or $_.Description -like "*Visio*")
-        }
-        foreach ($wp in $wmiProds) {
-            $log.AppendLine(" -> Dang go khoa WMI san pham: $($wp.Name)...") | Out-Null
-            try { Invoke-CimMethod -InputObject $wp -MethodName "UninstallProductKey" -ErrorAction SilentlyContinue | Out-Null } catch {}
-        }
-    } catch {}
-
-    Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\OfficeSoftwareProtectionPlatform" -Name "KeyManagementServiceMachine" -ErrorAction SilentlyContinue
-    Remove-ItemProperty -Path "HKLM:\SOFTWARE\WOW6432Node\Microsoft\OfficeSoftwareProtectionPlatform" -Name "KeyManagementServiceMachine" -ErrorAction SilentlyContinue
-    $log.AppendLine() | Out-Null
-
-    $log.AppendLine("==================================================================================") | Out-Null
-    $log.AppendLine("                    HOAN TAT QUA TRINH GO BO BAN QUYEN KMS LAU                    ") | Out-Null
-    $log.AppendLine(" - Trang thai Windows/Office hien tai da duoc lam sach cac thong tin KMS lau.") | Out-Null
-    $log.AppendLine(" - Ban co the nhap khoa ban quyen chinh hang de kich hoat lai.") | Out-Null
-    $log.AppendLine("==================================================================================") | Out-Null
-
-    return $log.ToString()
-}
-
-# 5.5 HAM GO BO MICROSOFT OFFICE (GO PHAN MEM & GO BOKEY KICH HOAT DONG BO VOI THONG TIN QUET)
 function Start-OfficeUninstallProcess {
     $log = New-Object System.Text.StringBuilder
     $log.AppendLine("==================================================================================") | Out-Null
@@ -762,10 +603,7 @@ function Start-OfficeUninstallProcess {
     $log.AppendLine("----------------------------------------------------------------------------------") | Out-Null
     $log.AppendLine() | Out-Null
 
-    # 1. DUA VAO KET QUA QUET (Get-OfficeActivation) DE LIET KE SAN PHAM CAN GO
-    $log.AppendLine("[BUOC 1] Dang doc ket qua quet giay phep (Get-OfficeActivation)...") | Out-Null
     $scanList = Get-OfficeActivation
-    
     if ($scanList.Count -gt 0) {
         $log.AppendLine(" -> Phat hien $($scanList.Count) phien ban/giay phep Office/Project/Visio tu ket qua quet:") | Out-Null
         foreach ($item in $scanList) {
@@ -780,10 +618,6 @@ function Start-OfficeUninstallProcess {
     }
     $log.AppendLine() | Out-Null
 
-    # 2. GO PHAN MEM CAI DAT TRONG REGISTRY & CLICK-TO-RUN
-    $log.AppendLine("[BUOC 2] Dang tien hanh go bo phan mem cai dat tren he thong...") | Out-Null
-    
-    # 2.1 Click-To-Run Uninstaller
     $c2rPaths = @(
         "${env:ProgramFiles}\Common Files\Microsoft Shared\ClickToRun\OfficeClickToRun.exe",
         "${env:ProgramFiles(x86)}\Common Files\Microsoft Shared\ClickToRun\OfficeClickToRun.exe"
@@ -803,7 +637,6 @@ function Start-OfficeUninstallProcess {
         }
     }
 
-    # 2.2 Registry Uninstall (MSI & Cac goi phan mem)
     $regUninstallPaths = @(
         "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
         "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
@@ -872,10 +705,7 @@ function Start-OfficeUninstallProcess {
     }
     $log.AppendLine() | Out-Null
 
-    # 3. GO BO TOAN BO GIAY PHEP SAN PHAM VA MAY CHU KMS QUA OSPP VA WMI
     $log.AppendLine("[BUOC 3] Dang xoa sach tat ca Product Key va thong tin KMS cua Office / Project / Visio...") | Out-Null
-    
-    # 3.1 Xoa qua OSPP
     $officePaths = @(
         "${env:ProgramFiles}\Microsoft Office\Office16",
         "${env:ProgramFiles(x86)}\Microsoft Office\Office16",
@@ -906,7 +736,6 @@ function Start-OfficeUninstallProcess {
         }
     }
 
-    # 3.2 Xoa qua WMI SoftwareLicensingProduct (Cho tat ca cac san pham con lai)
     try {
         $wmiProducts = Get-CimInstance -ClassName SoftwareLicensingProduct -ErrorAction SilentlyContinue | Where-Object { 
             ($_.PartialProductKey -or $_.LicenseStatus -eq 1 -or $_.LicenseStatus -eq 5) -and 
@@ -931,474 +760,626 @@ function Start-OfficeUninstallProcess {
     return @{ Log = $log.ToString(); Count = ($scanList.Count + $officeRegApps.Count) }
 }
 
-# 6. CHAY CHE DO DONG LENH (CLI)
-if ($ConsoleOnly) {
+function Start-SystemAndNetworkCleanupProcess {
+    $log = New-Object System.Text.StringBuilder
+    $log.AppendLine("==================================================================================") | Out-Null
+    $log.AppendLine("     BAT DAU QUA TRINH DON DEP TEMP, PREFETCH VA RESET CACHE MANG (IT HELPDESK)    ") | Out-Null
+    $log.AppendLine("==================================================================================") | Out-Null
+    $log.AppendLine("Thoi gian thuc hien : $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')") | Out-Null
+    $log.AppendLine("Ten may tinh        : $env:COMPUTERNAME") | Out-Null
+    $log.AppendLine("----------------------------------------------------------------------------------") | Out-Null
+    $log.AppendLine() | Out-Null
+
+    $tempFolders = @(
+        $env:TEMP,
+        "$env:windir\Temp",
+        "$env:windir\Prefetch",
+        "$env:windir\SoftwareDistribution\Download"
+    )
+    $deletedFiles = 0
+    $deletedBytes = 0
+
+    foreach ($folder in $tempFolders) {
+        if (Test-Path $folder) {
+            $log.AppendLine(" -> Dang don dep thu muc: $folder...") | Out-Null
+            $files = Get-ChildItem -Path $folder -Recurse -File -ErrorAction SilentlyContinue
+            foreach ($f in $files) {
+                try {
+                    $size = $f.Length
+                    Remove-Item -Path $f.FullName -Force -ErrorAction SilentlyContinue
+                    $deletedFiles++
+                    $deletedBytes += $size
+                } catch {}
+            }
+        }
+    }
+    $freedMB = [math]::Round($deletedBytes / 1MB, 2)
+    $log.AppendLine(" -> DA XOA THANH CONG: $deletedFiles tep tin rac (Giai phong ~$freedMB MB dung luong o C).") | Out-Null
+    $log.AppendLine() | Out-Null
+
+    $log.AppendLine("[BUOC 2] Dang reset cache he thong mang...") | Out-Null
+    try {
+        $flushRes = ipconfig /flushdns 2>&1
+        $log.AppendLine(" -> Xoa Cache DNS (ipconfig /flushdns): $($flushRes -join ' ')") | Out-Null
+    } catch {}
+
+    try {
+        Clear-DnsClientCache -ErrorAction SilentlyContinue
+        $log.AppendLine(" -> Clear-DnsClientCache: Thanh cong.") | Out-Null
+    } catch {}
+
+    try {
+        $winsockRes = netsh winsock reset 2>&1
+        $log.AppendLine(" -> Reset Winsock catalog (netsh winsock reset): Thanh cong.") | Out-Null
+    } catch {}
+
+    try {
+        $ipResetRes = netsh int ip reset 2>&1
+        $log.AppendLine(" -> Reset IP stack (netsh int ip reset): Thanh cong.") | Out-Null
+    } catch {}
+
+    $log.AppendLine() | Out-Null
+    $log.AppendLine("==================================================================================") | Out-Null
+    $log.AppendLine("             HOAN TAT QUA TRINH DON DEP HE THONG VA RESET MANG                    ") | Out-Null
+    $log.AppendLine("==================================================================================") | Out-Null
+
+    return $log.ToString()
+}
+
+# 5. XUAT BAO CAO HTML DANG IT AUDIT REPORT
+function Export-HTMLReport {
+    param ($winInfo, $officeList, $crackInfo, $logText)
+    
+    $sys = Get-SystemInfoSummary
+    $reportPath = Join-Path $env:USERPROFILE "Desktop\BaoCao_BanQuyen_ITHelpdesk.html"
+    
+    $officeHtml = ""
+    if ($officeList.Count -eq 0) {
+        $officeHtml = "<tr><td colspan='4'>Khong phat hien san pham Office / Project / Visio nao.</td></tr>"
+    } else {
+        foreach ($o in $officeList) {
+            $officeHtml += "<tr><td>$($o.ProductName)</td><td>$($o.Status)</td><td>$($o.Channel)</td><td>$($o.KMSServer)</td></tr>"
+        }
+    }
+
+    $riskHtml = ""
+    if ($crackInfo.Risks.Count -eq 0) {
+        $riskHtml = "<tr style='background-color:#d1fae5;color:#065f46;'><td colspan='2'><strong>[AN TOAN]</strong> Khong phat hien dau hieu be khoa.</td></tr>"
+    } else {
+        for ($i = 0; $i -lt $crackInfo.Risks.Count; $i++) {
+            $riskHtml += "<tr style='background-color:#fee2e2;color:#991b1b;'><td>$($crackInfo.Risks[$i])</td><td>$($crackInfo.Details[$i])</td></tr>"
+        }
+    }
+
+    $htmlContent = @"
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>BAO CAO KIEM TRA BAN QUYEN IT HELPDESK</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 20px; }
+        .container { max-width: 900px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+        h1 { color: #0f172a; border-bottom: 3px solid #3b82f6; padding-bottom: 10px; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; background: #f1f5f9; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
+        th, td { border: 1px solid #cbd5e1; padding: 10px; text-align: left; }
+        th { background-color: #3b82f6; color: white; }
+        .log-box { background: #0f172a; color: #38bdf8; padding: 15px; border-radius: 8px; font-family: monospace; white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>BAO CAO KIEM TRA BAN QUYEN IT HELPDESK</h1>
+        <p>Thoi gian xuat bao cao: <strong>$(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')</strong></p>
+        
+        <div class="info-grid">
+            <div><strong>Ten may tinh:</strong> $($sys.ComputerName)</div>
+            <div><strong>Dia chi IP:</strong> $($sys.IP)</div>
+            <div><strong>Dia chi MAC:</strong> $($sys.MAC)</div>
+        </div>
+
+        <h2>1. Ban Quyen Windows</h2>
+        <table>
+            <tr><th>Phien ban</th><td>$($winInfo.ProductName)</td></tr>
+            <tr><th>Trang thai</th><td>$($winInfo.StatusText)</td></tr>
+            <tr><th>Kenh giay phep</th><td>$($winInfo.Channel)</td></tr>
+            <tr><th>May chu KMS</th><td>$($winInfo.KMSServer)</td></tr>
+        </table>
+
+        <h2>2. Ban Quyen Office / Project / Visio</h2>
+        <table>
+            <thead>
+                <tr><th>Ten san pham</th><th>Trang thai</th><th>Kenh</th><th>KMS Server</th></tr>
+            </thead>
+            <tbody>
+                $officeHtml
+            </tbody>
+        </table>
+
+        <h2>3. Nguy Co Crack / Be Khoa</h2>
+        <table>
+            <thead>
+                <tr><th>Dau hieu</th><th>Chi tiet mo ta</th></tr>
+            </thead>
+            <tbody>
+                $riskHtml
+            </tbody>
+        </table>
+
+        <h2>4. Nhat Ky Xu Ly Chi Tiet</h2>
+        <div class="log-box">$logText</div>
+    </div>
+</body>
+</html>
+"@
+
+    $htmlContent | Set-Content $reportPath -Encoding utf8 -Force
+    return $reportPath
+}
+
+# 6. CHE DO DONG LENH (CLI)
+if ($ConsoleOnly -or $RemoveKMS -or $UninstallCracks -or $UninstallOffice -or $CleanTemp) {
     if ($RemoveKMS) {
-        $res = Start-KMSRemovalProcess
-        Write-Host $res
+        $logStr = Start-KMSRemovalProcess
+        Write-Host $logStr
     } elseif ($UninstallCracks) {
         $res = Start-CrackedAppsUninstallProcess
         Write-Host $res.Log
     } elseif ($UninstallOffice) {
         $res = Start-OfficeUninstallProcess
         Write-Host $res.Log
+    } elseif ($CleanTemp) {
+        $logStr = Start-SystemAndNetworkCleanupProcess
+        Write-Host $logStr
     } else {
         Write-Host "`n==========================================================================" -ForegroundColor Cyan
-        Write-Host "             CONG CU KIEM TRA BAN QUYEN WINDOWS & OFFICE                   " -ForegroundColor White -BackgroundColor DarkBlue
+        Write-Host "             CONG CU KIEM TRA BAN QUYEN WINDOWS, OFFICE & CRACK            " -ForegroundColor White -BackgroundColor DarkBlue
         Write-Host "==========================================================================" -ForegroundColor Cyan
         
-        Write-Host "`n[+] Dang quet ban quyen Windows..." -ForegroundColor Yellow
         $win = Get-WindowsActivation
-        Write-Host " - Phien ban    : $($win.ProductName)"
-        Write-Host " - Phan loai    : $($win.Channel)"
-        Write-Host " - Trang thai   : $($win.StatusText)"
-        if ($win.KMSServer -and $win.KMSServer -ne "Khong phat hien") {
-            Write-Host " - May chu KMS  : $($win.KMSServer)" -ForegroundColor Red
+        Write-Host "`n[1] BAN QUYEN WINDOWS:" -ForegroundColor Yellow
+        Write-Host " - Phien ban  : $($win.ProductName)"
+        Write-Host " - Trang thai : $($win.StatusText)"
+        
+        $offList = Get-OfficeActivation
+        Write-Host "`n[2] BAN QUYEN OFFICE / PROJECT / VISIO:" -ForegroundColor Yellow
+        foreach ($o in $offList) {
+            Write-Host " - $($o.ProductName) | Trang thai: $($o.Status) | Kenh: $($o.Channel)"
         }
         
-        Write-Host "`n[+] Dang quet ban quyen Office..." -ForegroundColor Yellow
-        $officeList = Get-OfficeActivation
-        if ($officeList.Count -eq 0) {
-            Write-Host " - Khong tim thay ban Office nao da dang ky khoa ban quyen." -ForegroundColor Gray
-        } else {
-            foreach ($off in $officeList) {
-                Write-Host " - Ten san pham : $($off.ProductName)"
-                Write-Host "   Trang thai   : $($off.Status)"
-                Write-Host "   Phan nhom    : $($off.Channel)"
-                if ($off.KMSServer) {
-                    Write-Host "   May chu KMS  : $($off.KMSServer)" -ForegroundColor Red
-                }
-            }
-        }
-        
-        Write-Host "`n[+] Dang quet cac dau vet cong cu Crack..." -ForegroundColor Yellow
         $crack = Get-CrackDetection
+        Write-Host "`n[3] PHAT HIEN CRACK:" -ForegroundColor Yellow
         if ($crack.Risks.Count -eq 0) {
-            Write-Host " - [AN TOAN] Khong phat hien thay bat ky dau hieu phan mem crack/be khoa nao." -ForegroundColor Green
+            Write-Host " -> [AN TOAN] Khong phat hien dau hieu be khoa." -ForegroundColor Green
         } else {
-            Write-Host " - [CANH BAO] Phat hien $($crack.Risks.Count) dau hieu crack/be khoa he thong:" -ForegroundColor Red
-            for ($i = 0; $i -lt $crack.Risks.Count; $i++) {
-                Write-Host "   * Dau hieu: $($crack.Risks[$i])" -ForegroundColor Red
-                Write-Host "     Mo ta   : $($crack.Details[$i])" -ForegroundColor Gray
-            }
+            foreach ($r in $crack.Risks) { Write-Host " -> [CANH BAO] $r" -ForegroundColor Red }
         }
-        Write-Host "`n==========================================================================" -ForegroundColor Cyan
     }
     Exit
 }
 
-# 7. DINH NGHIA XAML GIAO DIEN UNIFIED GUI (TAT-CA-TRONG-MOT VOI 3 NUT TAC VU)
-$xamlContent = @'
+# 7. GIAO DIEN DO HOA WPF MODERN DARK DASHBOARD
+$sysInfo = Get-SystemInfoSummary
+
+$inputXML = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Cong cu kiem tra &amp; Quan ly ban quyen Windows - Tat ca trong mot" Height="720" Width="1060" 
-        WindowStartupLocation="CenterScreen" ResizeMode="CanMinimize"
-        Background="#0B0F19" BorderBrush="#1E293B" BorderThickness="1">
-    
-    <Window.Resources>
-        <Style TargetType="TextBlock">
-            <Setter Property="FontFamily" Value="Segoe UI, Inter, Arial"/>
-            <Setter Property="Foreground" Value="#E2E8F0"/>
-        </Style>
-    </Window.Resources>
-
-    <Grid Margin="25">
+        Title="IT Helpdesk - Cong cu Kiem tra &amp; Go Ban Quyen" Height="820" Width="1100"
+        WindowStartupLocation="CenterScreen" Background="#0F172A" FontFamily="Segoe UI">
+    <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- Header chua 3 nut chinh -->
-        <Grid Grid.Row="0" Margin="0,0,0,25">
+        <!-- HEADER DASHBOARD CARD -->
+        <Border Grid.Row="0" Background="#1E293B" CornerRadius="12" Padding="20" Margin="0,0,0,15">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="IT HELPDESK DASHBOARD" Foreground="#38BDF8" FontSize="13" FontWeight="Bold" LetterSpacing="1"/>
+                    <TextBlock Text="Cong Cu Kiem Tra Ban Quyen &amp; Don Dep He Thong" Foreground="#F8FAFC" FontSize="22" FontWeight="Bold" Margin="0,4,0,8"/>
+                    <StackPanel Orientation="Horizontal">
+                        <Border Background="#334155" CornerRadius="6" Padding="8,4" Margin="0,0,10,0">
+                            <TextBlock Text="May: $($sysInfo.ComputerName)" Foreground="#CBD5E1" FontSize="12" FontWeight="SemiBold"/>
+                        </Border>
+                        <Border Background="#334155" CornerRadius="6" Padding="8,4" Margin="0,0,10,0">
+                            <TextBlock Text="IP: $($sysInfo.IP)" Foreground="#CBD5E1" FontSize="12" FontWeight="SemiBold"/>
+                        </Border>
+                        <Border Background="#334155" CornerRadius="6" Padding="8,4">
+                            <TextBlock Text="MAC: $($sysInfo.MAC)" Foreground="#CBD5E1" FontSize="12" FontWeight="SemiBold"/>
+                        </Border>
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right">
+                    <Border Background="#10B981" CornerRadius="8" Padding="12,6">
+                        <TextBlock Text="[ADMINISTRATOR]" Foreground="White" FontWeight="Bold" FontSize="12"/>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- KPI STATUS CARDS -->
+        <Grid Grid.Row="1" Margin="0,0,0,15">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="15"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="15"/>
+                <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0">
-                <TextBlock Text="CONG CU QUAN LY BAN QUYEN &amp; DON CRACK HE THONG" FontSize="18.5" FontWeight="Bold" Foreground="#38BDF8"/>
-                <TextBlock Text="Quet ban quyen Windows/Office, go bo ung dung crack va don may chu KMS lau" FontSize="12" Foreground="#94A3B8" Margin="0,5,0,0"/>
-            </StackPanel>
-            <StackPanel Grid.Column="1" Orientation="Horizontal">
-                <Button Name="btnScan" Content="BAT DAU QUET" Width="140" Height="42" Background="#0284C7" Foreground="White" FontWeight="Bold" FontSize="12" BorderThickness="0" Cursor="Hand" Margin="0,0,8,0">
-                    <Button.Resources>
-                        <Style TargetType="Border">
-                            <Setter Property="CornerRadius" Value="6"/>
-                        </Style>
-                    </Button.Resources>
-                </Button>
-                <Button Name="btnUninstallCracks" Content="GO CRACK HANG LOAT" Width="175" Height="42" Background="#D97706" Foreground="White" FontWeight="Bold" FontSize="12" BorderThickness="0" Cursor="Hand" Margin="0,0,8,0">
-                    <Button.Resources>
-                        <Style TargetType="Border">
-                            <Setter Property="CornerRadius" Value="6"/>
-                        </Style>
-                    </Button.Resources>
-                </Button>
-                <Button Name="btnRemoveKMS" Content="GO BO KMS LAU" Width="145" Height="42" Background="#DC2626" Foreground="White" FontWeight="Bold" FontSize="12" BorderThickness="0" Cursor="Hand" Margin="0,0,8,0">
-                    <Button.Resources>
-                        <Style TargetType="Border">
-                            <Setter Property="CornerRadius" Value="6"/>
-                        </Style>
-                    </Button.Resources>
-                </Button>
-                <Button Name="btnUninstallOffice" Content="GO BO OFFICE" Width="135" Height="42" Background="#4B5563" Foreground="White" FontWeight="Bold" FontSize="12" BorderThickness="0" Cursor="Hand">
-                    <Button.Resources>
-                        <Style TargetType="Border">
-                            <Setter Property="CornerRadius" Value="6"/>
-                        </Style>
-                    </Button.Resources>
-                </Button>
-            </StackPanel>
+
+            <!-- CARD 1: WINDOWS STATUS -->
+            <Border Grid.Column="0" Background="#1E293B" CornerRadius="10" Padding="15">
+                <StackPanel>
+                    <TextBlock Text="WINDOWS LICENSE" Foreground="#94A3B8" FontSize="11" FontWeight="Bold"/>
+                    <TextBlock x:Name="txtCardWin" Text="Chua quet..." Foreground="#38BDF8" FontSize="16" FontWeight="Bold" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <!-- CARD 2: OFFICE STATUS -->
+            <Border Grid.Column="2" Background="#1E293B" CornerRadius="10" Padding="15">
+                <StackPanel>
+                    <TextBlock Text="OFFICE / PROJECT STATUS" Foreground="#94A3B8" FontSize="11" FontWeight="Bold"/>
+                    <TextBlock x:Name="txtCardOffice" Text="Chua quet..." Foreground="#38BDF8" FontSize="16" FontWeight="Bold" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <!-- CARD 3: RISK WARNING -->
+            <Border Grid.Column="4" Background="#1E293B" CornerRadius="10" Padding="15">
+                <StackPanel>
+                    <TextBlock Text="SECURITY RISK LEVEL" Foreground="#94A3B8" FontSize="11" FontWeight="Bold"/>
+                    <TextBlock x:Name="txtCardRisk" Text="Chua kiem tra" Foreground="#10B981" FontSize="16" FontWeight="Bold" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
         </Grid>
 
-        <!-- 3 Cards thong so -->
-        <UniformGrid Grid.Row="1" Columns="3" Margin="0,0,0,25">
-            <Border Name="cardWin" Background="#111827" BorderBrush="#1F2937" BorderThickness="1.5" CornerRadius="10" Margin="0,0,12,0" Padding="18">
-                <StackPanel>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="" FontSize="16" Margin="0,0,8,0"/>
-                        <TextBlock Text="HE DIEU HANH WINDOWS" FontSize="11" FontWeight="Bold" Foreground="#94A3B8" VerticalAlignment="Center"/>
-                    </StackPanel>
-                    <TextBlock Name="txtWinStatus" Text="Chua kiem tra" FontSize="18" FontWeight="Bold" Foreground="#F1F5F9" Margin="0,15,0,8" TextWrapping="Wrap"/>
-                    <TextBlock Name="txtWinDetails" Text="Nhan nut Quet de nhan thong tin chi tiet ve phien ban va kenh kich hoat." FontSize="11.5" Foreground="#64748B" TextWrapping="Wrap" LineHeight="16"/>
-                </StackPanel>
-            </Border>
+        <!-- ACTION TOOLBAR GROUPS -->
+        <Border Grid.Row="2" Background="#1E293B" CornerRadius="12" Padding="15" Margin="0,0,0,15">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
 
-            <Border Name="cardOffice" Background="#111827" BorderBrush="#1F2937" BorderThickness="1.5" CornerRadius="10" Margin="6,0,6,0" Padding="18">
-                <StackPanel>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="" FontSize="16" Margin="0,0,8,0"/>
-                        <TextBlock Text="MICROSOFT OFFICE" FontSize="11" FontWeight="Bold" Foreground="#94A3B8" VerticalAlignment="Center"/>
-                    </StackPanel>
-                    <TextBlock Name="txtOfficeStatus" Text="Chua kiem tra" FontSize="18" FontWeight="Bold" Foreground="#F1F5F9" Margin="0,15,0,8" TextWrapping="Wrap"/>
-                    <TextBlock Name="txtOfficeDetails" Text="Nhan nut Quet de phat hien cac phien ban Office duoc cai dat tren he thong." FontSize="11.5" Foreground="#64748B" TextWrapping="Wrap" LineHeight="16"/>
+                <!-- ROW 1: BAN QUYEN & CRACK -->
+                <StackPanel Grid.Row="0" Margin="0,0,0,10">
+                    <TextBlock Text="1. QUAN LY BAN QUYEN &amp; CRACK" Foreground="#94A3B8" FontSize="11" FontWeight="Bold" Margin="0,0,0,8"/>
+                    <WrapPanel>
+                        <Button x:Name="btnScan" Content="BAT DAU QUET" Width="150" Height="38" Background="#3B82F6" Foreground="White" FontWeight="Bold" BorderThickness="0" Margin="0,0,10,5" Cursor="Hand"/>
+                        <Button x:Name="btnRemoveKms" Content="GO BO KMS LAU" Width="150" Height="38" Background="#EF4444" Foreground="White" FontWeight="Bold" BorderThickness="0" Margin="0,0,10,5" Cursor="Hand"/>
+                        <Button x:Name="btnUninstallCracks" Content="GO APP CRACK" Width="150" Height="38" Background="#F59E0B" Foreground="White" FontWeight="Bold" BorderThickness="0" Margin="0,0,10,5" Cursor="Hand"/>
+                        <Button x:Name="btnUninstallOffice" Content="GO BO OFFICE/PROJECT" Width="170" Height="38" Background="#DC2626" Foreground="White" FontWeight="Bold" BorderThickness="0" Margin="0,0,10,5" Cursor="Hand"/>
+                    </WrapPanel>
                 </StackPanel>
-            </Border>
 
-            <Border Name="cardCrack" Background="#111827" BorderBrush="#1F2937" BorderThickness="1.5" CornerRadius="10" Margin="12,0,0,0" Padding="18">
-                <StackPanel>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="" FontSize="16" Margin="0,0,8,0"/>
-                        <TextBlock Text="PHAN MEM BE KHOA / CRACK" FontSize="11" FontWeight="Bold" Foreground="#94A3B8" VerticalAlignment="Center"/>
-                    </StackPanel>
-                    <TextBlock Name="txtCrackStatus" Text="Chua kiem tra" FontSize="18" FontWeight="Bold" Foreground="#F1F5F9" Margin="0,15,0,8" TextWrapping="Wrap"/>
-                    <TextBlock Name="txtCrackDetails" Text="Quet chu ky so ung dung cai dat, tep Hosts va tac vu ngam de phat hien crack..." FontSize="11.5" Foreground="#64748B" TextWrapping="Wrap" LineHeight="16"/>
+                <!-- ROW 2: CONG CU IT HELPDESK -->
+                <StackPanel Grid.Row="1">
+                    <TextBlock Text="2. CONG CU HO TRO IT HELPDESK" Foreground="#94A3B8" FontSize="11" FontWeight="Bold" Margin="0,0,0,8"/>
+                    <WrapPanel>
+                        <Button x:Name="btnCleanTemp" Content="DON DEP TEMP &amp; DNS" Width="170" Height="38" Background="#10B981" Foreground="White" FontWeight="Bold" BorderThickness="0" Margin="0,0,10,5" Cursor="Hand"/>
+                        <Button x:Name="btnActivateKey" Content="KICH HOAT KEY MOI" Width="160" Height="38" Background="#8B5CF6" Foreground="White" FontWeight="Bold" BorderThickness="0" Margin="0,0,10,5" Cursor="Hand"/>
+                        <Button x:Name="btnExportReport" Content="XUAT BAO CAO HTML" Width="160" Height="38" Background="#06B6D4" Foreground="White" FontWeight="Bold" BorderThickness="0" Margin="0,0,10,5" Cursor="Hand"/>
+                    </WrapPanel>
                 </StackPanel>
-            </Border>
-        </UniformGrid>
+            </Grid>
+        </Border>
 
-        <!-- Log Console -->
-        <Grid Grid.Row="2" Margin="0,0,0,20">
+        <!-- LOG TERMINAL CONSOLE -->
+        <Grid Grid.Row="3">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
-            <TextBlock Text="KET QUA QUET / THUC THI CHI TIET" FontSize="12" FontWeight="Bold" Foreground="#94A3B8" Margin="0,0,0,8"/>
-            <TextBox Name="txtLogs" Grid.Row="1" Background="#070A13" Foreground="#38BDF8" BorderBrush="#1E293B" BorderThickness="1.5" FontFamily="Consolas" FontSize="12.5" IsReadOnly="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" AcceptsReturn="True" Padding="15"/>
-        </Grid>
 
-        <!-- Footer -->
-        <Grid Grid.Row="3">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="Trang thai he thong: San sang | Dang chay voi quyen Administrator" FontSize="11" Foreground="#475569" VerticalAlignment="Center"/>
-            <StackPanel Grid.Column="1" Orientation="Horizontal">
-                <Button Name="btnExport" Content="Xuat Bao Cao (.txt)" Width="160" Height="32" Background="#1E293B" Foreground="#E2E8F0" FontWeight="SemiBold" FontSize="12" BorderThickness="0" Cursor="Hand" IsEnabled="False">
-                    <Button.Resources>
-                        <Style TargetType="Border">
-                            <Setter Property="CornerRadius" Value="4"/>
-                        </Style>
-                    </Button.Resources>
-                </Button>
-            </StackPanel>
+            <Grid Grid.Row="0" Margin="0,0,0,6">
+                <TextBlock Text="NHAT KY XU LY (TERMINAL LOG)" Foreground="#94A3B8" FontSize="12" FontWeight="Bold" VerticalAlignment="Center"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="btnCopyLog" Content="SAO CHEP LOG" Width="110" Height="26" Background="#334155" Foreground="White" FontSize="11" FontWeight="SemiBold" BorderThickness="0" Margin="0,0,8,0" Cursor="Hand"/>
+                    <Button x:Name="btnClearLog" Content="XOA LOG" Width="90" Height="26" Background="#334155" Foreground="White" FontSize="11" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
+                </StackPanel>
+            </Grid>
+
+            <Border Grid.Row="1" Background="#090D16" CornerRadius="8" Padding="12">
+                <TextBox x:Name="txtLog" Foreground="#38BDF8" Background="Transparent" BorderThickness="0" FontFamily="Consolas" FontSize="12.5" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" AcceptsReturn="True"/>
+            </Border>
         </Grid>
     </Grid>
 </Window>
-'@
+"@
 
-# 8. KHOI CHAY VA RANG BUOC SU KIEN GIAO DIEN
-try {
-    $xmlReader = New-Object System.Xml.XmlNodeReader ([xml]$xamlContent)
-    $Window = [Windows.Markup.XamlReader]::Load($xmlReader)
+$reader = (New-Object System.Xml.XmlNodeReader ([xml]$inputXML))
+$Window = [Windows.Markup.XamlReader]::Load($reader)
 
-    $xamlObj = [xml]$xamlContent
-    $xamlObj.SelectNodes("//*[@Name]") | ForEach-Object {
-        Set-Variable -Name "UI_$($_.Name)" -Value $Window.FindName($_.Name)
+# Lay Control
+$btnScan = $Window.FindName("btnScan")
+$btnRemoveKms = $Window.FindName("btnRemoveKms")
+$btnUninstallCracks = $Window.FindName("btnUninstallCracks")
+$btnUninstallOffice = $Window.FindName("btnUninstallOffice")
+$btnCleanTemp = $Window.FindName("btnCleanTemp")
+$btnActivateKey = $Window.FindName("btnActivateKey")
+$btnExportReport = $Window.FindName("btnExportReport")
+$btnCopyLog = $Window.FindName("btnCopyLog")
+$btnClearLog = $Window.FindName("btnClearLog")
+
+$txtCardWin = $Window.FindName("txtCardWin")
+$txtCardOffice = $Window.FindName("txtCardOffice")
+$txtCardRisk = $Window.FindName("txtCardRisk")
+$txtLog = $Window.FindName("txtLog")
+
+# Biến lưu trữ kết quả
+$global:lastWinInfo = $null
+$global:lastOfficeList = $null
+$global:lastCrackInfo = $null
+
+# HAM CAP NHAT CARD DASHBOARD
+function Update-DashboardCards {
+    param ($win, $officeList, $crack)
+    
+    if ($win) {
+        $txtCardWin.Text = "$($win.ProductName)`n$($win.StatusText)"
+        if ($win.Status -eq "Licensed" -and $win.KMSServer -eq "Khong phat hien") {
+            $txtCardWin.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#10B981")
+        } else {
+            $txtCardWin.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#EF4444")
+        }
     }
 
-    $BrushGreen = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#10B981")
-    $BrushRed = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#EF4444")
-    $BrushYellow = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#F59E0B")
-    $BrushWhite = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#F1F5F9")
-    $BrushSlate = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#475569")
-    $BorderRed = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#7F1D1D")
-    $BorderGreen = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#064E3B")
-    $BorderNormal = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#1F2937")
-
-    $globalReportText = ""
-
-    # SU KIEN CLICK: QUET HE THONG
-    $UI_btnScan.Add_Click({
-        $UI_btnScan.IsEnabled = $false
-        $UI_btnUninstallCracks.IsEnabled = $false
-        $UI_btnRemoveKMS.IsEnabled = $false
-        $UI_btnUninstallOffice.IsEnabled = $false
-        $UI_btnScan.Content = "DANG QUET..."
-        
-        $UI_txtWinStatus.Text = "Dang xu ly..."
-        $UI_txtOfficeStatus.Text = "Dang xu ly..."
-        $UI_txtCrackStatus.Text = "Dang xu ly..."
-        
-        [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Background, [action]{})
-        
-        $win = Get-WindowsActivation
-        if ($win.RawStatus -eq 1) {
-            $UI_txtWinStatus.Text = "Da kich hoat [OK]"
-            $UI_txtWinStatus.Foreground = $BrushGreen
-            $UI_cardWin.BorderBrush = $BorderGreen
-        } elseif ($win.RawStatus -eq 5 -or $win.RawStatus -eq 0) {
-            $UI_txtWinStatus.Text = "Chua kich hoat [!]"
-            $UI_txtWinStatus.Foreground = $BrushYellow
-            $UI_cardWin.BorderBrush = $BorderNormal
-        } else {
-            $UI_txtWinStatus.Text = "Trang thai khac [!]"
-            $UI_txtWinStatus.Foreground = $BrushYellow
-            $UI_cardWin.BorderBrush = $BorderNormal
-        }
-        $winServerInfo = ""
-        if ($win.KMSServer -and $win.KMSServer -ne "Khong phat hien") {
-            $winServerInfo = "`n[!] May chu KMS: $($win.KMSServer)"
-        }
-        $UI_txtWinDetails.Text = "Kenh kich hoat: $($win.Channel)`nPhien ban: $($win.ProductName)$winServerInfo"
-        
-        $officeList = Get-OfficeActivation
+    if ($officeList) {
         if ($officeList.Count -eq 0) {
-            $UI_txtOfficeStatus.Text = "Chua cai dat / Khong tim thay "
-            $UI_txtOfficeStatus.Foreground = $BrushSlate
-            $UI_txtOfficeDetails.Text = "Khong tim thay phien ban Microsoft Office nao da dang ky khoa ban quyen."
-            $UI_cardOffice.BorderBrush = $BorderNormal
+            $txtCardOffice.Text = "Khong phat hien Office"
+            $txtCardOffice.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#94A3B8")
         } else {
-            $isOfficeActivated = $true
-            $officeBrief = ""
-            foreach ($off in $officeList) {
-                $briefName = $off.ProductName
-                if ($briefName.Length -gt 35) { $briefName = $briefName.Substring(0, 32) + "..." }
-                $officeBrief += "- $briefName : $($off.Status)`n"
-                if ($off.Status -ne "Da kich hoat" -and $off.Status -notlike "*Kich hoat qua*") {
-                    $isOfficeActivated = $false
-                }
-            }
-            $UI_txtOfficeDetails.Text = $officeBrief.Trim()
-            
-            if ($isOfficeActivated) {
-                $UI_txtOfficeStatus.Text = "Da kich hoat [OK]"
-                $UI_txtOfficeStatus.Foreground = $BrushGreen
-                $UI_cardOffice.BorderBrush = $BorderGreen
-            } else {
-                $UI_txtOfficeStatus.Text = "Co phien ban chua kich hoat [!]"
-                $UI_txtOfficeStatus.Foreground = $BrushYellow
-                $UI_cardOffice.BorderBrush = $BorderNormal
-            }
+            $txtCardOffice.Text = "Tim thấy $($officeList.Count) giay phep Office/Project"
+            $txtCardOffice.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#38BDF8")
         }
-        
-        $crack = Get-CrackDetection
+    }
+
+    if ($crack) {
         if ($crack.Risks.Count -eq 0) {
-            $UI_txtCrackStatus.Text = "He thong An toan [OK]"
-            $UI_txtCrackStatus.Foreground = $BrushGreen
-            $UI_cardCrack.BorderBrush = $BorderGreen
-            $UI_txtCrackDetails.Text = "Khong phat hien bat ky tien trinh, tac vu chay ngam, file hoac tep tin hosts nao bi can thiep boi cong cu be khoa."
+            $txtCardRisk.Text = "[AN TOAN] Khong phat hien crack"
+            $txtCardRisk.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#10B981")
         } else {
-            $UI_txtCrackStatus.Text = "Phat hien vet be khoa ❌"
-            $UI_txtCrackStatus.Foreground = $BrushRed
-            $UI_cardCrack.BorderBrush = $BorderRed
-            $UI_txtCrackDetails.Text = "Phat hien $($crack.Risks.Count) diem canh bao be khoa phan mem he thong. Xem chi tiet ben duoi!"
+            $txtCardRisk.Text = "[CANH BAO] $($crack.Risks.Count) dau hieu nguy hiem!"
+            $txtCardRisk.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#EF4444")
         }
-        
-        $log = New-Object System.Text.StringBuilder
-        $log.AppendLine("==================================================================================") | Out-Null
-        $log.AppendLine("                   BAO CAO KIEM TRA BAN QUYEN VA PHAT HIEN CRACK                  ") | Out-Null
-        $log.AppendLine("==================================================================================") | Out-Null
-        $log.AppendLine("Thoi gian thuc hien : $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')") | Out-Null
-        $log.AppendLine("Ten may tinh        : $env:COMPUTERNAME") | Out-Null
-        $log.AppendLine("He dieu hanh        : $( (Get-CimInstance Win32_OperatingSystem).Caption ) (Phien ban: $((Get-CimInstance Win32_OperatingSystem).Version))") | Out-Null
-        $log.AppendLine("----------------------------------------------------------------------------------") | Out-Null
-        $log.AppendLine() | Out-Null
-        
-        $log.AppendLine("[1] KET QUA KIEM TRA WINDOWS:") | Out-Null
-        $log.AppendLine(" - San pham          : $($win.ProductName)") | Out-Null
-        $log.AppendLine(" - Kenh phan phoi    : $($win.Channel)") | Out-Null
-        $log.AppendLine(" - Trang thai        : $($win.StatusText)") | Out-Null
-        if ($win.KMSServer -and $win.KMSServer -ne "Khong phat hien") {
-            $log.AppendLine(" - May chu KMS (Lau) : $($win.KMSServer) (Phat hien cau hinh ban quyen huong ngoai)") | Out-Null
-        }
-        $log.AppendLine() | Out-Null
-        
-        $log.AppendLine("[2] KET QUA KIEM TRA OFFICE:") | Out-Null
-        if ($officeList.Count -eq 0) {
-            $log.AppendLine(" - Khong tim thay thong tin san pham Microsoft Office.") | Out-Null
-        } else {
-            foreach ($off in $officeList) {
-                $log.AppendLine(" - Ten phien ban   : $($off.ProductName)") | Out-Null
-                $log.AppendLine("   Trang thai      : $($off.Status)") | Out-Null
-                $log.AppendLine("   Kenh giay phep  : $($off.Channel)") | Out-Null
-                $log.AppendLine("   Nguon phat hien : $($off.Source)") | Out-Null
-                if ($off.KMSServer) {
-                    $log.AppendLine("   May chu KMS     : $($off.KMSServer)") | Out-Null
-                }
-                $log.AppendLine("   --------------------------------------") | Out-Null
-            }
-        }
-        $log.AppendLine() | Out-Null
-        
-        $log.AppendLine("[3] DANH GIA VA PHAT HIEN CRACK/BE KHOA:") | Out-Null
-        if ($crack.Risks.Count -eq 0) {
-            $log.AppendLine(" -> [AN TOAN] Khong phat hien bat ky tien trinh, tac vu, tep tin hosts hay thu muc be khoa nao.") | Out-Null
-        } else {
-            $log.AppendLine(" -> [CANH BAO NGUY HIEM] Phat hien $($crack.Risks.Count) canh bao be khoa phan mem:") | Out-Null
-            for ($i = 0; $i -lt $crack.Risks.Count; $i++) {
-                $log.AppendLine("   * Canh bao: $($crack.Risks[$i])") | Out-Null
-                $log.AppendLine("     Mo ta   : $($crack.Details[$i])") | Out-Null
-                $log.AppendLine("     ----------------------------------------------------------------") | Out-Null
-            }
-            $log.AppendLine() | Out-Null
-            $log.AppendLine("KHUYEN NGHI BAO MAT:") | Out-Null
-            $log.AppendLine(" - Cac phan mem be khoa co nguy co bi cai cam ma doc lay cap du lieu doanh nghiep.") | Out-Null
-            $log.AppendLine(" - Nen go bo ban crack va su dung cac phien ban chinh hang hoac ma nguon mo thay the.") | Out-Null
-        }
-        $log.AppendLine() | Out-Null
-        $log.AppendLine("==================================================================================") | Out-Null
-        
-        $script:globalReportText = $log.ToString()
-        $UI_txtLogs.Text = $script:globalReportText
-        
-        $UI_btnScan.IsEnabled = $true
-        $UI_btnUninstallCracks.IsEnabled = $true
-        $UI_btnRemoveKMS.IsEnabled = $true
-        $UI_btnUninstallOffice.IsEnabled = $true
-        $UI_btnScan.Content = "BAT DAU QUET"
-        $UI_btnExport.IsEnabled = $true
-    })
-
-    # SU KIEN CLICK: GO CAI DAT HANG LOAT UNG DUNG CRACK
-    $UI_btnUninstallCracks.Add_Click({
-        $confirm = [System.Windows.MessageBox]::Show("Ban co chac chan muon TU DONG GO CAI DAT HANG LOAT tat ca cac phan mem thuong mai bi phat hien be khoa tren may tinh khong?", "Xac nhan go crack hang loat", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
-        if ($confirm -ne [System.Windows.MessageBoxResult]::Yes) { return }
-        
-        $UI_btnScan.IsEnabled = $false
-        $UI_btnUninstallCracks.IsEnabled = $false
-        $UI_btnRemoveKMS.IsEnabled = $false
-        $UI_btnUninstallOffice.IsEnabled = $false
-        $UI_btnUninstallCracks.Content = "DANG GO HANG LOAT..."
-        
-        $UI_txtLogs.Text = "Dang tien hanh go cai dat tu dong hang loat tat ca phan mem be khoa... Vui long doi."
-        [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Background, [action]{})
-        
-        $res = Start-CrackedAppsUninstallProcess
-        $script:globalReportText = $res.Log
-        $UI_txtLogs.Text = $res.Log
-        
-        $UI_btnScan.IsEnabled = $true
-        $UI_btnUninstallCracks.IsEnabled = $true
-        $UI_btnRemoveKMS.IsEnabled = $true
-        $UI_btnUninstallOffice.IsEnabled = $true
-        $UI_btnUninstallCracks.Content = "GO CRACK HANG LOAT"
-        $UI_btnExport.IsEnabled = $true
-        
-        if ($res.Count -gt 0) {
-            [System.Windows.MessageBox]::Show("Da hoan tat qua trinh go cai dat hang loat $($res.Count) phan mem bi crack!", "Thong bao", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
-        } else {
-            [System.Windows.MessageBox]::Show("Khong tim thay phan mem ben thu ba nao dang bi crack tren he thong.", "Thong bao", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
-        }
-    })
-
-    # SU KIEN CLICK: GO BO KMS LAU
-    $UI_btnRemoveKMS.Add_Click({
-        $confirm = [System.Windows.MessageBox]::Show("Ban co chac chan muon go bo may chu KMS lau va lam sach he thong khong?`n`nHanh dong nay se go Product Key KMS lau va dua Windows tro ve trang thai chua kich hoat chuan.", "Xac nhan go KMS", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
-        if ($confirm -ne [System.Windows.MessageBoxResult]::Yes) { return }
-        
-        $UI_btnScan.IsEnabled = $false
-        $UI_btnUninstallCracks.IsEnabled = $false
-        $UI_btnRemoveKMS.IsEnabled = $false
-        $UI_btnUninstallOffice.IsEnabled = $false
-        $UI_btnRemoveKMS.Content = "DANG GO BO..."
-        
-        $UI_txtLogs.Text = "Dang tien hanh go bo ban quyen KMS lau va don dep he thong... Vui long doi trong giay lat."
-        [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Background, [action]{})
-        
-        $resultText = Start-KMSRemovalProcess
-        $script:globalReportText = $resultText
-        $UI_txtLogs.Text = $resultText
-        
-        $UI_btnScan.IsEnabled = $true
-        $UI_btnUninstallCracks.IsEnabled = $true
-        $UI_btnRemoveKMS.IsEnabled = $true
-        $UI_btnUninstallOffice.IsEnabled = $true
-        $UI_btnRemoveKMS.Content = "GO BO KMS LAU"
-        $UI_btnExport.IsEnabled = $true
-        [System.Windows.MessageBox]::Show("Da hoan tat qua trinh go bo ban quyen KMS lau va lam sach he thong!", "Thong bao", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
-    })
-
-    # SU KIEN CLICK: GO BO OFFICE
-    $UI_btnUninstallOffice.Add_Click({
-        $confirm = [System.Windows.MessageBox]::Show("Ban co chac chan muon GO CAI DAT toan bo cac phien ban Microsoft Office/Microsoft 365 tren may tinh nay khong?", "Xac nhan go Office", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
-        if ($confirm -ne [System.Windows.MessageBoxResult]::Yes) { return }
-        
-        $UI_btnScan.IsEnabled = $false
-        $UI_btnUninstallCracks.IsEnabled = $false
-        $UI_btnRemoveKMS.IsEnabled = $false
-        $UI_btnUninstallOffice.IsEnabled = $false
-        $UI_btnUninstallOffice.Content = "DANG GO BO..."
-        
-        $UI_txtLogs.Text = "Dang tien hanh go bo sach toan bo phien ban Microsoft Office... Vui long doi trong giay lat."
-        [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Background, [action]{})
-        
-        $res = Start-OfficeUninstallProcess
-        $script:globalReportText = $res.Log
-        $UI_txtLogs.Text = $res.Log
-        
-        $UI_btnScan.IsEnabled = $true
-        $UI_btnUninstallCracks.IsEnabled = $true
-        $UI_btnRemoveKMS.IsEnabled = $true
-        $UI_btnUninstallOffice.IsEnabled = $true
-        $UI_btnUninstallOffice.Content = "GO BO OFFICE"
-        $UI_btnExport.IsEnabled = $true
-        
-        if ($res.Count -gt 0) {
-            [System.Windows.MessageBox]::Show("Da hoan tat qua trinh go bo cac phien ban Microsoft Office!", "Thong bao", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
-        } else {
-            [System.Windows.MessageBox]::Show("Khong tim thay phien ban Microsoft Office nao de go hoac da duoc go truoc do.", "Thong bao", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
-        }
-    })
-
-    # SU KIEN CLICK: XUAT BAO CAO
-    $UI_btnExport.Add_Click({
-        if (-not $script:globalReportText) { return }
-        $saveFileDialog = New-Object Microsoft.Win32.SaveFileDialog
-        $saveFileDialog.Filter = "Text Files (*.txt)|*.txt"
-        $saveFileDialog.FileName = "BaoCao_BanQuyen_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
-        
-        if ($saveFileDialog.ShowDialog() -eq $true) {
-            try {
-                $script:globalReportText | Out-File -FilePath $saveFileDialog.FileName -Encoding utf8
-                [System.Windows.MessageBox]::Show("Xuat bao cao thanh cong tai:`n$($saveFileDialog.FileName)", "Thong bao", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
-            } catch {
-                [System.Windows.MessageBox]::Show("Loi khi ghi tep: $($_.Exception.Message)", "Loi", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
-            }
-        }
-    })
-
-    # HIEN THI CUA SO
-    $Window.ShowDialog() | Out-Null
-
-} catch {
-    Write-Host "========================================================" -ForegroundColor Red
-    Write-Host "LOI THUC THI GIAO DIEN:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    Write-Host $_.ScriptStackTrace -ForegroundColor Red
-    Write-Host "========================================================" -ForegroundColor Red
-    Write-Host "Nhan phim bat ky de dong..." -ForegroundColor Yellow
-    [void]$Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    }
 }
+
+# EVENT BINDING
+$btnScan.Add_Click({
+    $txtLog.Text = "Dang thuc hien quet he thong xin vui long cho...`n"
+    $btnScan.IsEnabled = $false
+    
+    $codeBlock = {
+        $win = Get-WindowsActivation
+        $offices = Get-OfficeActivation
+        $crack = Get-CrackDetection
+        
+        $sb = New-Object System.Text.StringBuilder
+        $sb.AppendLine("==================================================================================") | Out-Null
+        $sb.AppendLine("                     KET QUA KIEM TRA BAN QUYEN & HE THONG                        ") | Out-Null
+        $sb.AppendLine("==================================================================================") | Out-Null
+        $sb.AppendLine("Thoi gian quet : $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')") | Out-Null
+        $sb.AppendLine("Ten may tinh   : $env:COMPUTERNAME") | Out-Null
+        $sb.AppendLine("----------------------------------------------------------------------------------") | Out-Null
+        $sb.AppendLine() | Out-Null
+        
+        $sb.AppendLine("[1] KET QUA KIEM TRA WINDOWS:") | Out-Null
+        $sb.AppendLine($win.Details) | Out-Null
+        $sb.AppendLine() | Out-Null
+        
+        $sb.AppendLine("[2] KET QUA KIEM TRA MICROSOFT OFFICE / PROJECT / VISIO:") | Out-Null
+        if ($offices.Count -eq 0) {
+            $sb.AppendLine(" -> Khong tim thay san pham Office / Project / Visio nao duoc dang ky.") | Out-Null
+        } else {
+            foreach ($o in $offices) {
+                $sb.AppendLine(" -> Ten san pham : $($o.ProductName)") | Out-Null
+                $sb.AppendLine("    Trang thai   : $($o.Status)") | Out-Null
+                $sb.AppendLine("    Kenh         : $($o.Channel)") | Out-Null
+                if ($o.KMSServer) { $sb.AppendLine("    KMS Server   : $($o.KMSServer)") | Out-Null }
+                $sb.AppendLine("    --------------------------------------------------") | Out-Null
+            }
+        }
+        $sb.AppendLine() | Out-Null
+        
+        $sb.AppendLine("[3] KET QUA QUET DAU VET CRACK / BE KHOA:") | Out-Null
+        if ($crack.Risks.Count -eq 0) {
+            $sb.AppendLine(" -> [AN TOAN] Khong phat hien bat ky dau hieu be khoa he thong nao.") | Out-Null
+        } else {
+            $sb.AppendLine(" -> [CANH BAO] Phat hien $($crack.Risks.Count) dau hieu nguy hiem:") | Out-Null
+            for ($i = 0; $i -lt $crack.Risks.Count; $i++) {
+                $sb.AppendLine("    * Dau hieu: $($crack.Risks[$i])") | Out-Null
+                $sb.AppendLine("      Chi tiet : $($crack.Details[$i])") | Out-Null
+            }
+        }
+        $sb.AppendLine() | Out-Null
+        $sb.AppendLine("==================================================================================") | Out-Null
+        
+        return @{ Win = $win; Office = $offices; Crack = $crack; Log = $sb.ToString() }
+    }
+    
+    $pipe = [System.Management.Automation.PowerShell]::Create().AddScript($codeBlock)
+    $async = $pipe.BeginInvoke()
+    
+    $timer = New-Object System.Windows.Threading.DispatcherTimer
+    $timer.Interval = [TimeSpan]::FromMilliseconds(200)
+    $timer.Add_Tick({
+        if ($async.IsCompleted) {
+            $timer.Stop()
+            $res = $pipe.EndInvoke($async)
+            $global:lastWinInfo = $res.Win
+            $global:lastOfficeList = $res.Office
+            $global:lastCrackInfo = $res.Crack
+            
+            $txtLog.Text = $res.Log
+            Update-DashboardCards -win $res.Win -officeList $res.Office -crack $res.Crack
+            $btnScan.IsEnabled = $true
+            $pipe.Dispose()
+        }
+    })
+    $timer.Start()
+})
+
+$btnRemoveKms.Add_Click({
+    $txtLog.Text = "Dang thuc hien go bo ban quyen KMS lau xin vui long cho...`n"
+    $btnRemoveKms.IsEnabled = $false
+    
+    $codeBlock = { Start-KMSRemovalProcess }
+    $pipe = [System.Management.Automation.PowerShell]::Create().AddScript($codeBlock)
+    $async = $pipe.BeginInvoke()
+    
+    $timer = New-Object System.Windows.Threading.DispatcherTimer
+    $timer.Interval = [TimeSpan]::FromMilliseconds(200)
+    $timer.Add_Tick({
+        if ($async.IsCompleted) {
+            $timer.Stop()
+            $logOut = $pipe.EndInvoke($async)
+            $txtLog.Text = $logOut
+            $btnRemoveKms.IsEnabled = $true
+            $pipe.Dispose()
+        }
+    })
+    $timer.Start()
+})
+
+$btnUninstallCracks.Add_Click({
+    $txtLog.Text = "Dang thuc hien go bo phan mem crack xin vui long cho...`n"
+    $btnUninstallCracks.IsEnabled = $false
+    
+    $codeBlock = { Start-CrackedAppsUninstallProcess }
+    $pipe = [System.Management.Automation.PowerShell]::Create().AddScript($codeBlock)
+    $async = $pipe.BeginInvoke()
+    
+    $timer = New-Object System.Windows.Threading.DispatcherTimer
+    $timer.Interval = [TimeSpan]::FromMilliseconds(200)
+    $timer.Add_Tick({
+        if ($async.IsCompleted) {
+            $timer.Stop()
+            $res = $pipe.EndInvoke($async)
+            $txtLog.Text = $res.Log
+            $btnUninstallCracks.IsEnabled = $true
+            $pipe.Dispose()
+        }
+    })
+    $timer.Start()
+})
+
+$btnUninstallOffice.Add_Click({
+    $txtLog.Text = "Dang thuc hien go bo Office / Project / Visio xin vui long cho...`n"
+    $btnUninstallOffice.IsEnabled = $false
+    
+    $codeBlock = { Start-OfficeUninstallProcess }
+    $pipe = [System.Management.Automation.PowerShell]::Create().AddScript($codeBlock)
+    $async = $pipe.BeginInvoke()
+    
+    $timer = New-Object System.Windows.Threading.DispatcherTimer
+    $timer.Interval = [TimeSpan]::FromMilliseconds(200)
+    $timer.Add_Tick({
+        if ($async.IsCompleted) {
+            $timer.Stop()
+            $res = $pipe.EndInvoke($async)
+            $txtLog.Text = $res.Log
+            $btnUninstallOffice.IsEnabled = $true
+            $pipe.Dispose()
+        }
+    })
+    $timer.Start()
+})
+
+$btnCleanTemp.Add_Click({
+    $txtLog.Text = "Dang don dep he thong va reset cache mang xin vui long cho...`n"
+    $btnCleanTemp.IsEnabled = $false
+    
+    $codeBlock = { Start-SystemAndNetworkCleanupProcess }
+    $pipe = [System.Management.Automation.PowerShell]::Create().AddScript($codeBlock)
+    $async = $pipe.BeginInvoke()
+    
+    $timer = New-Object System.Windows.Threading.DispatcherTimer
+    $timer.Interval = [TimeSpan]::FromMilliseconds(200)
+    $timer.Add_Tick({
+        if ($async.IsCompleted) {
+            $timer.Stop()
+            $logOut = $pipe.EndInvoke($async)
+            $txtLog.Text = $logOut
+            $btnCleanTemp.IsEnabled = $true
+            $pipe.Dispose()
+        }
+    })
+    $timer.Start()
+})
+
+$btnActivateKey.Add_Click({
+    $keyInput = [Microsoft.VisualBasic.Interaction]::InputBox("Nhap Product Key chinh hang (Windows hoac Office):`n(Vi du: VK7JG-NPHTM-C97JM-9MPGT-3V66T)", "Kich Hoat Ban Quyen Chinh Hang", "")
+    if (-not [string]::IsNullOrWhiteSpace($keyInput)) {
+        $cleanKey = $keyInput.Trim()
+        $txtLog.Text = "Dang tien hanh kich hoat khoa ban quyen: $cleanKey ...`n"
+        
+        $codeBlock = {
+            param ($k)
+            $log = New-Object System.Text.StringBuilder
+            $log.AppendLine("Dang cai dat Product Key Windows: $k ...") | Out-Null
+            try {
+                $res1 = cscript.exe //NoLogo "$env:windir\System32\slmgr.vbs" /ipk $k 2>&1
+                $log.AppendLine(" -> Ket qua slmgr /ipk: $($res1 -join ' ')") | Out-Null
+                $res2 = cscript.exe //NoLogo "$env:windir\System32\slmgr.vbs" /ato 2>&1
+                $log.AppendLine(" -> Ket qua slmgr /ato: $($res2 -join ' ')") | Out-Null
+            } catch {
+                $log.AppendLine(" -> Loi khi kich hoat Windows: $($_.Exception.Message)") | Out-Null
+            }
+            return $log.ToString()
+        }
+        
+        $pipe = [System.Management.Automation.PowerShell]::Create().AddScript($codeBlock).AddArgument($cleanKey)
+        $async = $pipe.BeginInvoke()
+        
+        $timer = New-Object System.Windows.Threading.DispatcherTimer
+        $timer.Interval = [TimeSpan]::FromMilliseconds(200)
+        $timer.Add_Tick({
+            if ($async.IsCompleted) {
+                $timer.Stop()
+                $logOut = $pipe.EndInvoke($async)
+                $txtLog.Text = $logOut
+                $pipe.Dispose()
+            }
+        })
+        $timer.Start()
+    }
+})
+
+$btnExportReport.Add_Click({
+    if (-not $global:lastWinInfo) {
+        $global:lastWinInfo = Get-WindowsActivation
+        $global:lastOfficeList = Get-OfficeActivation
+        $global:lastCrackInfo = Get-CrackDetection
+    }
+    
+    try {
+        $filePath = Export-HTMLReport -winInfo $global:lastWinInfo -officeList $global:lastOfficeList -crackInfo $global:lastCrackInfo -logText $txtLog.Text
+        [System.Windows.MessageBox]::Show("Da xuat bao cao HTML thanh cong tai:`n$filePath", "Xuat Bao Cao Thanh Cong", "OK", "Information")
+        Start-Process $filePath -ErrorAction SilentlyContinue
+    } catch {
+        [System.Windows.MessageBox]::Show("Loi khi xuat bao cao HTML: $($_.Exception.Message)", "Loi", "OK", "Error")
+    }
+})
+
+$btnCopyLog.Add_Click({
+    if (-not [string]::IsNullOrWhiteSpace($txtLog.Text)) {
+        [System.Windows.Clipboard]::SetText($txtLog.Text)
+        [System.Windows.MessageBox]::Show("Da sao chep toan bo nhat ky log vao Clipboard!", "Thong Bao", "OK", "Information")
+    }
+})
+
+$btnClearLog.Add_Click({
+    $txtLog.Text = ""
+})
+
+# CHO HIEN THI CUA SO GIAO DIEN
+$Window.ShowDialog() | Out-Null
