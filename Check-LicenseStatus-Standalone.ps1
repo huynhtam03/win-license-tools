@@ -670,32 +670,77 @@ function Start-KMSRemovalProcess {
     }
     $log.AppendLine() | Out-Null
 
-    # Buoc 7: Go bo khoa san pham Office/Project/Visio KMS con sot lai qua WMI
-    $log.AppendLine("[BUOC 7] Dang go bo cac Product Key Office/Project/Visio KMS lau qua WMI...") | Out-Null
+    # Buoc 7: Go bo khoa san pham Office/Project/Visio KMS con sot lai
+    $log.AppendLine("[BUOC 7] Dang go bo cac Product Key Office/Project/Visio KMS lau...") | Out-Null
+    
+    # 7.1 Dung WMI class OfficeSoftwareProtectionProduct (chuyen dung cho Office)
     try {
-        $officeProducts = Get-CimInstance -ClassName SoftwareLicensingProduct -Filter "Description like '%Office%' and PartialProductKey is not null" -ErrorAction SilentlyContinue
-        if (-not $officeProducts) {
-            $officeProducts = Get-CimInstance -ClassName SoftwareLicensingProduct -Filter "PartialProductKey is not null" -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*Office*" -or $_.Name -like "*Project*" -or $_.Name -like "*Visio*" }
-        }
-        
-        $removedOfficeKeys = 0
-        foreach ($p in $officeProducts) {
+        $products = Get-CimInstance -ClassName OfficeSoftwareProtectionProduct -Filter "PartialProductKey is not null" -ErrorAction SilentlyContinue
+        $removedCount = 0
+        foreach ($p in $products) {
             $isKMS = ($p.Description -like "*KMS*" -or $p.Description -like "*VOLUME*" -or $p.Name -like "*VL*" -or $p.Name -like "*KMS*")
             $isNotRetail = ($p.Description -notlike "*RETAIL*" -and $p.Description -notlike "*SUBSCRIPTION*")
-            
             if ($isKMS -and $isNotRetail) {
-                $log.AppendLine(" -> Dang go khoa san pham: $($p.Name)") | Out-Null
-                $res = Invoke-CimMethod -InputObject $p -MethodName "UninstallProductKey" -ErrorAction SilentlyContinue
-                $removedOfficeKeys++
+                $log.AppendLine(" -> [WMI Office] Dang go khoa san pham: $($p.Name) (Key: $($p.PartialProductKey))") | Out-Null
+                Invoke-CimMethod -InputObject $p -MethodName "UninstallProductKey" -ErrorAction SilentlyContinue
+                $removedCount++
             }
         }
-        if ($removedOfficeKeys -eq 0) {
-            $log.AppendLine(" -> Khong phat hien khoa san pham Office/Project/Visio KMS nao can go.") | Out-Null
-        } else {
-            $log.AppendLine(" -> Da go bo thanh cong $removedOfficeKeys khoa san pham Office/Project/Visio KMS.") | Out-Null
+    } catch {
+        $log.AppendLine(" -> Loi khi go qua WMI Office: $($_.Exception.Message)") | Out-Null
+    }
+
+    # 7.2 Dung WMI class SoftwareLicensingProduct (du phong)
+    try {
+        $products = Get-CimInstance -ClassName SoftwareLicensingProduct -Filter "Description like '%Office%' and PartialProductKey is not null" -ErrorAction SilentlyContinue
+        foreach ($p in $products) {
+            $isKMS = ($p.Description -like "*KMS*" -or $p.Description -like "*VOLUME*" -or $p.Name -like "*VL*" -or $p.Name -like "*KMS*")
+            $isNotRetail = ($p.Description -notlike "*RETAIL*" -and $p.Description -notlike "*SUBSCRIPTION*")
+            if ($isKMS -and $isNotRetail) {
+                $log.AppendLine(" -> [WMI Windows] Dang go khoa san pham: $($p.Name) (Key: $($p.PartialProductKey))") | Out-Null
+                Invoke-CimMethod -InputObject $p -MethodName "UninstallProductKey" -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {}
+
+    # 7.3 Dung cscript.exe va ospp.vbs (Du phong cuoi cung cuc ky tin cay)
+    try {
+        $keysToUninstall = @()
+        $p1 = Get-CimInstance -ClassName OfficeSoftwareProtectionProduct -Filter "PartialProductKey is not null" -ErrorAction SilentlyContinue
+        $p2 = Get-CimInstance -ClassName SoftwareLicensingProduct -Filter "Description like '%Office%' and PartialProductKey is not null" -ErrorAction SilentlyContinue
+        
+        foreach ($p in ($p1 + $p2)) {
+            if ($p.PartialProductKey) {
+                $isKMS = ($p.Description -like "*KMS*" -or $p.Description -like "*VOLUME*" -or $p.Name -like "*VL*" -or $p.Name -like "*KMS*")
+                $isNotRetail = ($p.Description -notlike "*RETAIL*" -and $p.Description -notlike "*SUBSCRIPTION*")
+                if ($isKMS -and $isNotRetail) {
+                    if ($keysToUninstall -notcontains $p.PartialProductKey) {
+                        $keysToUninstall += $p.PartialProductKey
+                    }
+                }
+            }
+        }
+        
+        if ($keysToUninstall.Count -gt 0) {
+            $officePaths = @(
+                "${env:ProgramFiles}\Microsoft Office\Office16",
+                "${env:ProgramFiles(x86)}\Microsoft Office\Office16",
+                "${env:ProgramFiles}\Microsoft Office\Office15",
+                "${env:ProgramFiles(x86)}\Microsoft Office\Office15"
+            )
+            foreach ($path in $officePaths) {
+                $ospp = Join-Path $path "ospp.vbs"
+                if (Test-Path $ospp) {
+                    foreach ($key in $keysToUninstall) {
+                        $log.AppendLine(" -> [OSPP Script] Dang go khoa du phong: $key bang file ospp.vbs...") | Out-Null
+                        $res = cscript.exe //NoLogo "$ospp" /unpkey:$key 2>&1
+                        $log.AppendLine("    Ket qua: $($res -join ' ')") | Out-Null
+                    }
+                }
+            }
         }
     } catch {
-        $log.AppendLine(" -> Loi khi go khoa san pham Office KMS: $($_.Exception.Message)") | Out-Null
+        $log.AppendLine(" -> Loi khi go qua OSPP: $($_.Exception.Message)") | Out-Null
     }
     $log.AppendLine() | Out-Null
 
