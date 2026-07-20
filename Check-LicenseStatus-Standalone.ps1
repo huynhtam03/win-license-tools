@@ -11,7 +11,8 @@
 param (
     [switch]$ConsoleOnly,
     [switch]$RemoveKMS,
-    [switch]$UninstallCracks
+    [switch]$UninstallCracks,
+    [switch]$UninstallOffice
 )
 
 # 1. THIET LAP THU VIEN WPF
@@ -678,6 +679,156 @@ function Start-KMSRemovalProcess {
     return $log.ToString()
 }
 
+# 5.5 HAM GO BO MICROSOFT OFFICE
+function Start-OfficeUninstallProcess {
+    $log = New-Object System.Text.StringBuilder
+    $log.AppendLine("==================================================================================") | Out-Null
+    $log.AppendLine("              BAT DAU QUA TRINH GO CAI DAT MICROSOFT OFFICE                       ") | Out-Null
+    $log.AppendLine("==================================================================================") | Out-Null
+    $log.AppendLine("Thoi gian thuc hien : $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')") | Out-Null
+    $log.AppendLine("Ten may tinh        : $env:COMPUTERNAME") | Out-Null
+    $log.AppendLine("----------------------------------------------------------------------------------") | Out-Null
+    $log.AppendLine() | Out-Null
+
+    $regUninstallPaths = @(
+        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
+    $installedApps = Get-ItemProperty -Path $regUninstallPaths -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName }
+    
+    $officeApps = @()
+    foreach ($app in $installedApps) {
+        $name = $app.DisplayName
+        if ((($name -like "*Microsoft Office*") -or ($name -like "*Microsoft 365*")) -and 
+            ($name -notlike "*Proof*") -and 
+            ($name -notlike "*Language*") -and 
+            ($name -notlike "*Database Engine*") -and 
+            ($name -notlike "*Visual Studio*") -and 
+            ($name -notlike "*Viewer*") -and
+            ($name -notlike "*Office Web Apps*") -and
+            ($name -notlike "*OneDrive*") -and
+            ($name -notlike "*Teams*") -and
+            ($name -notlike "*Update*") -and
+            ($name -notlike "*Desktop App Support*")) {
+            
+            $officeApps += $app
+        }
+    }
+
+    if ($officeApps.Count -eq 0) {
+        $log.AppendLine(" -> [THONG BAO] Khong phat hien thay phien ban Microsoft Office nao duoc cai dat.") | Out-Null
+        $log.AppendLine("==================================================================================") | Out-Null
+        return @{ Log = $log.ToString(); Count = 0 }
+    }
+
+    $log.AppendLine(" -> Phat hien $($officeApps.Count) san pham Office can go:") | Out-Null
+    foreach ($o in $officeApps) {
+        $log.AppendLine("    * $($o.DisplayName)") | Out-Null
+    }
+    $log.AppendLine() | Out-Null
+
+    $uninstalledCount = 0
+    
+    # Click-To-Run uninstaller
+    $c2rPath = "${env:ProgramFiles}\Common Files\Microsoft Shared\ClickToRun\OfficeClickToRun.exe"
+    if (-not (Test-Path $c2rPath)) {
+        $c2rPath = "${env:ProgramFiles(x86)}\Common Files\Microsoft Shared\ClickToRun\OfficeClickToRun.exe"
+    }
+
+    $hasC2R = $false
+    foreach ($app in $officeApps) {
+        if ($app.UninstallString -like "*ClickToRun*" -or (Test-Path $c2rPath)) {
+            $hasC2R = $true
+        }
+    }
+
+    if ($hasC2R -and (Test-Path $c2rPath)) {
+        $log.AppendLine("[+] Dang chay trinh go sach Click-To-Run tu dong...") | Out-Null
+        try {
+            $p = Start-Process -FilePath $c2rPath -ArgumentList "scenario=uninstall forceuninstall=True displaylevel=False" -PassThru -NoNewWindow -ErrorAction SilentlyContinue
+            if ($p) {
+                $p.WaitForExit(300000)
+                $log.AppendLine(" -> Da thuc thi trinh go Click-To-Run. Ma thoat: $($p.ExitCode)") | Out-Null
+                $uninstalledCount++
+            } else {
+                $log.AppendLine(" -> Khong the khoi chay trinh go Click-To-Run.") | Out-Null
+            }
+        } catch {
+            $log.AppendLine(" -> Loi khi chay Click-To-Run uninstaller: $($_.Exception.Message)") | Out-Null
+        }
+    }
+
+    # MSI and other uninstallation strings
+    foreach ($app in $officeApps) {
+        $stillExists = Get-ItemProperty -Path $app.PSPath -ErrorAction SilentlyContinue
+        if (-not $stillExists) {
+            $uninstalledCount++
+            continue
+        }
+
+        $unCmd = $app.QuietUninstallString
+        $isQuiet = $true
+        if ([string]::IsNullOrWhiteSpace($unCmd)) {
+            $unCmd = $app.UninstallString
+            $isQuiet = $false
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($unCmd)) {
+            $log.AppendLine("[+] Dang go thu cong ($($app.DisplayName))...") | Out-Null
+            try {
+                $exe = ""
+                $rawArgs = ""
+                $cleanUnCmd = $unCmd.Trim()
+
+                if ($cleanUnCmd -match '^\s*"([^"]+\.[eE][xX][eE])"\s*(.*)$') {
+                    $exe = $matches[1]
+                    $rawArgs = $matches[2]
+                } elseif ($cleanUnCmd -match '^\s*([^\s]+\.[eE][xX][eE])\s*(.*)$') {
+                    $exe = $matches[1]
+                    $rawArgs = $matches[2]
+                } else {
+                    $exe = $cleanUnCmd
+                    $rawArgs = ""
+                }
+
+                if ($exe -and (Test-Path $exe -ErrorAction SilentlyContinue)) {
+                    $argList = if ([string]::IsNullOrWhiteSpace($rawArgs)) { "" } else { $rawArgs.Trim() }
+                    if (-not $isQuiet) {
+                        if ($exe -like "*msiexec.exe*") {
+                            if ($argList -notlike "*/qn*") {
+                                $argList = ($argList + " /qn /norestart").Trim()
+                            }
+                        }
+                    }
+                    $argList = $argList.Trim()
+
+                    $p = if ([string]::IsNullOrWhiteSpace($argList)) {
+                        Start-Process -FilePath $exe -PassThru -ErrorAction SilentlyContinue
+                    } else {
+                        Start-Process -FilePath $exe -ArgumentList $argList -PassThru -ErrorAction SilentlyContinue
+                    }
+                    if ($p) { $p.WaitForExit(180000) }
+                } else {
+                    $p = Start-Process cmd.exe -ArgumentList "/c `"$cleanUnCmd`"" -PassThru -ErrorAction SilentlyContinue
+                    if ($p) { $p.WaitForExit(180000) }
+                }
+                $log.AppendLine(" -> Da hoan tat go: $($app.DisplayName)") | Out-Null
+                $uninstalledCount++
+            } catch {
+                $log.AppendLine(" -> Loi khi go $($app.DisplayName): $($_.Exception.Message)") | Out-Null
+            }
+        }
+    }
+
+    $log.AppendLine() | Out-Null
+    $log.AppendLine("==================================================================================") | Out-Null
+    $log.AppendLine("       HOAN TAT GO CAI DAT MICROSOFT OFFICE                                       ") | Out-Null
+    $log.AppendLine("==================================================================================") | Out-Null
+
+    return @{ Log = $log.ToString(); Count = $uninstalledCount }
+}
+
 # 6. CHAY CHE DO DONG LENH (CLI)
 if ($ConsoleOnly) {
     if ($RemoveKMS) {
@@ -685,6 +836,9 @@ if ($ConsoleOnly) {
         Write-Host $res
     } elseif ($UninstallCracks) {
         $res = Start-CrackedAppsUninstallProcess
+        Write-Host $res.Log
+    } elseif ($UninstallOffice) {
+        $res = Start-OfficeUninstallProcess
         Write-Host $res.Log
     } else {
         Write-Host "`n==========================================================================" -ForegroundColor Cyan
@@ -779,7 +933,14 @@ $xamlContent = @'
                         </Style>
                     </Button.Resources>
                 </Button>
-                <Button Name="btnRemoveKMS" Content="GO BO KMS LAU" Width="145" Height="42" Background="#DC2626" Foreground="White" FontWeight="Bold" FontSize="12" BorderThickness="0" Cursor="Hand">
+                <Button Name="btnRemoveKMS" Content="GO BO KMS LAU" Width="145" Height="42" Background="#DC2626" Foreground="White" FontWeight="Bold" FontSize="12" BorderThickness="0" Cursor="Hand" Margin="0,0,8,0">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="6"/>
+                        </Style>
+                    </Button.Resources>
+                </Button>
+                <Button Name="btnUninstallOffice" Content="GO BO OFFICE" Width="135" Height="42" Background="#4B5563" Foreground="White" FontWeight="Bold" FontSize="12" BorderThickness="0" Cursor="Hand">
                     <Button.Resources>
                         <Style TargetType="Border">
                             <Setter Property="CornerRadius" Value="6"/>
@@ -882,6 +1043,7 @@ try {
         $UI_btnScan.IsEnabled = $false
         $UI_btnUninstallCracks.IsEnabled = $false
         $UI_btnRemoveKMS.IsEnabled = $false
+        $UI_btnUninstallOffice.IsEnabled = $false
         $UI_btnScan.Content = "DANG QUET..."
         
         $UI_txtWinStatus.Text = "Dang xu ly..."
@@ -1013,6 +1175,7 @@ try {
         $UI_btnScan.IsEnabled = $true
         $UI_btnUninstallCracks.IsEnabled = $true
         $UI_btnRemoveKMS.IsEnabled = $true
+        $UI_btnUninstallOffice.IsEnabled = $true
         $UI_btnScan.Content = "BAT DAU QUET"
         $UI_btnExport.IsEnabled = $true
     })
@@ -1025,6 +1188,7 @@ try {
         $UI_btnScan.IsEnabled = $false
         $UI_btnUninstallCracks.IsEnabled = $false
         $UI_btnRemoveKMS.IsEnabled = $false
+        $UI_btnUninstallOffice.IsEnabled = $false
         $UI_btnUninstallCracks.Content = "DANG GO HANG LOAT..."
         
         $UI_txtLogs.Text = "Dang tien hanh go cai dat tu dong hang loat tat ca phan mem be khoa... Vui long doi."
@@ -1037,6 +1201,7 @@ try {
         $UI_btnScan.IsEnabled = $true
         $UI_btnUninstallCracks.IsEnabled = $true
         $UI_btnRemoveKMS.IsEnabled = $true
+        $UI_btnUninstallOffice.IsEnabled = $true
         $UI_btnUninstallCracks.Content = "GO CRACK HANG LOAT"
         $UI_btnExport.IsEnabled = $true
         
@@ -1055,6 +1220,7 @@ try {
         $UI_btnScan.IsEnabled = $false
         $UI_btnUninstallCracks.IsEnabled = $false
         $UI_btnRemoveKMS.IsEnabled = $false
+        $UI_btnUninstallOffice.IsEnabled = $false
         $UI_btnRemoveKMS.Content = "DANG GO BO..."
         
         $UI_txtLogs.Text = "Dang tien hanh go bo ban quyen KMS lau va don dep he thong... Vui long doi trong giay lat."
@@ -1067,9 +1233,42 @@ try {
         $UI_btnScan.IsEnabled = $true
         $UI_btnUninstallCracks.IsEnabled = $true
         $UI_btnRemoveKMS.IsEnabled = $true
+        $UI_btnUninstallOffice.IsEnabled = $true
         $UI_btnRemoveKMS.Content = "GO BO KMS LAU"
         $UI_btnExport.IsEnabled = $true
         [System.Windows.MessageBox]::Show("Da hoan tat qua trinh go bo ban quyen KMS lau va lam sach he thong!", "Thong bao", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+    })
+
+    # SU KIEN CLICK: GO BO OFFICE
+    $UI_btnUninstallOffice.Add_Click({
+        $confirm = [System.Windows.MessageBox]::Show("Ban co chac chan muon GO CAI DAT toan bo cac phien ban Microsoft Office/Microsoft 365 tren may tinh nay khong?", "Xac nhan go Office", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
+        if ($confirm -ne [System.Windows.MessageBoxResult]::Yes) { return }
+        
+        $UI_btnScan.IsEnabled = $false
+        $UI_btnUninstallCracks.IsEnabled = $false
+        $UI_btnRemoveKMS.IsEnabled = $false
+        $UI_btnUninstallOffice.IsEnabled = $false
+        $UI_btnUninstallOffice.Content = "DANG GO BO..."
+        
+        $UI_txtLogs.Text = "Dang tien hanh go bo sach toan bo phien ban Microsoft Office... Vui long doi trong giay lat."
+        [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Background, [action]{})
+        
+        $res = Start-OfficeUninstallProcess
+        $script:globalReportText = $res.Log
+        $UI_txtLogs.Text = $res.Log
+        
+        $UI_btnScan.IsEnabled = $true
+        $UI_btnUninstallCracks.IsEnabled = $true
+        $UI_btnRemoveKMS.IsEnabled = $true
+        $UI_btnUninstallOffice.IsEnabled = $true
+        $UI_btnUninstallOffice.Content = "GO BO OFFICE"
+        $UI_btnExport.IsEnabled = $true
+        
+        if ($res.Count -gt 0) {
+            [System.Windows.MessageBox]::Show("Da hoan tat qua trinh go bo cac phien ban Microsoft Office!", "Thong bao", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+        } else {
+            [System.Windows.MessageBox]::Show("Khong tim thay phien ban Microsoft Office nao de go hoac da duoc go truoc do.", "Thong bao", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+        }
     })
 
     # SU KIEN CLICK: XUAT BAO CAO
