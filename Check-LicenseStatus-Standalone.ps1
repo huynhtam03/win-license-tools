@@ -983,7 +983,7 @@ $inputXML = @"
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0">
-                    <TextBlock Text="IT HELPDESK DASHBOARD" Foreground="#38BDF8" FontSize="13" FontWeight="Bold" LetterSpacing="1"/>
+                    <TextBlock Text="IT HELPDESK DASHBOARD" Foreground="#38BDF8" FontSize="13" FontWeight="Bold"/>
                     <TextBlock Text="Cong Cu Kiem Tra Ban Quyen &amp; Don Dep He Thong" Foreground="#F8FAFC" FontSize="22" FontWeight="Bold" Margin="0,4,0,8"/>
                     <StackPanel Orientation="Horizontal">
                         <Border Background="#334155" CornerRadius="6" Padding="8,4" Margin="0,0,10,0">
