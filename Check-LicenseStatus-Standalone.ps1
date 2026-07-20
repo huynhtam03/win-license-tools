@@ -674,18 +674,25 @@ function Start-KMSRemovalProcess {
     $log.AppendLine("[BUOC 7] Dang go bo cac Product Key Office/Project/Visio KMS lau qua WMI...") | Out-Null
     try {
         $officeProducts = Get-CimInstance -ClassName SoftwareLicensingProduct -Filter "Description like '%Office%' and PartialProductKey is not null" -ErrorAction SilentlyContinue
+        if (-not $officeProducts) {
+            $officeProducts = Get-CimInstance -ClassName SoftwareLicensingProduct -Filter "PartialProductKey is not null" -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*Office*" -or $_.Name -like "*Project*" -or $_.Name -like "*Visio*" }
+        }
+        
         $removedOfficeKeys = 0
         foreach ($p in $officeProducts) {
-            if ($p.Description -like "*KMS*" -or $p.Description -like "*VOLUME_KMS*") {
+            $isKMS = ($p.Description -like "*KMS*" -or $p.Description -like "*VOLUME*" -or $p.Name -like "*VL*" -or $p.Name -like "*KMS*")
+            $isNotRetail = ($p.Description -notlike "*RETAIL*" -and $p.Description -notlike "*SUBSCRIPTION*")
+            
+            if ($isKMS -and $isNotRetail) {
                 $log.AppendLine(" -> Dang go khoa san pham: $($p.Name)") | Out-Null
                 $res = Invoke-CimMethod -InputObject $p -MethodName "UninstallProductKey" -ErrorAction SilentlyContinue
                 $removedOfficeKeys++
             }
         }
         if ($removedOfficeKeys -eq 0) {
-            $log.AppendLine(" -> Khong phat hien khoa san pham Office KMS nao can go.") | Out-Null
+            $log.AppendLine(" -> Khong phat hien khoa san pham Office/Project/Visio KMS nao can go.") | Out-Null
         } else {
-            $log.AppendLine(" -> Da go bo thanh cong $removedOfficeKeys khoa san pham Office KMS.") | Out-Null
+            $log.AppendLine(" -> Da go bo thanh cong $removedOfficeKeys khoa san pham Office/Project/Visio KMS.") | Out-Null
         }
     } catch {
         $log.AppendLine(" -> Loi khi go khoa san pham Office KMS: $($_.Exception.Message)") | Out-Null
