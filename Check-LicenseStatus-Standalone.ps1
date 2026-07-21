@@ -44,6 +44,92 @@ function Get-SystemInfoSummary {
     return @{ ComputerName = $env:COMPUTERNAME; IP = $ip; MAC = $mac }
 }
 
+function Get-FullComputerAssetInfo {
+    $asset = [ordered]@{
+        ComputerName      = $env:COMPUTERNAME
+        Manufacturer      = "Khong xac dinh"
+        Model             = "Khong xac dinh"
+        SerialNumber      = "Khong xac dinh"
+        MotherboardSerial = "Khong xac dinh"
+        OSName            = "Khong xac dinh"
+        OSVersion         = "Khong xac dinh"
+        OSArchitecture    = "Khong xac dinh"
+        OSInstallDate     = "Khong xac dinh"
+        CurrentUser       = $env:USERNAME
+        UserDomain        = $env:USERDOMAIN
+        CPU               = "Khong xac dinh"
+        CPUCoresThreads   = "Khong xac dinh"
+        RAM_Total_GB      = 0
+        RAM_Slots_Used    = "Khong xac dinh"
+        Disk_Summary      = "Khong xac dinh"
+        Network_Adapter   = "Khong xac dinh"
+        IPAddress         = "Khong xac dinh"
+        MACAddress        = "Khong xac dinh"
+        AuditTimestamp    = (Get-Date -Format 'dd/MM/yyyy HH:mm:ss')
+    }
+
+    try {
+        $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
+        if ($cs) {
+            $asset.Manufacturer = $cs.Manufacturer
+            $asset.Model = $cs.Model
+        }
+
+        $bios = Get-CimInstance -ClassName Win32_BIOS -ErrorAction SilentlyContinue
+        if ($bios) {
+            $asset.SerialNumber = $bios.SerialNumber
+        }
+
+        $baseboard = Get-CimInstance -ClassName Win32_BaseBoard -ErrorAction SilentlyContinue
+        if ($baseboard) {
+            $asset.MotherboardSerial = $baseboard.SerialNumber
+        }
+
+        $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue
+        if ($os) {
+            $asset.OSName = $os.Caption
+            $asset.OSVersion = "$($os.Version) (Build $($os.BuildNumber))"
+            $asset.OSArchitecture = $os.OSArchitecture
+            $asset.OSInstallDate = $os.InstallDate.ToString('dd/MM/yyyy HH:mm:ss')
+        }
+
+        $cpu = Get-CimInstance -ClassName Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($cpu) {
+            $asset.CPU = $cpu.Name.Trim()
+            $asset.CPUCoresThreads = "$($cpu.NumberOfCores) Cores / $($cpu.NumberOfLogicalProcessors) Threads"
+        }
+
+        $ramChips = Get-CimInstance -ClassName Win32_PhysicalMemory -ErrorAction SilentlyContinue
+        if ($ramChips) {
+            $totalBytes = ($ramChips | Measure-Object -Property Capacity -Sum).Sum
+            $asset.RAM_Total_GB = [math]::Round($totalBytes / 1GB, 2)
+            $asset.RAM_Slots_Used = "$($ramChips.Count) Khe RAM"
+        }
+
+        $disks = Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction SilentlyContinue
+        if ($disks) {
+            $diskSummaryList = @()
+            foreach ($d in $disks) {
+                $gb = [math]::Round($d.Size / 1GB, 2)
+                $diskSummaryList += "$($d.Model) ($gb GB, SN: $($d.SerialNumber))"
+            }
+            $asset.Disk_Summary = $diskSummaryList -join " | "
+        }
+
+        $net = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" } | Select-Object -First 1
+        if ($net) {
+            $asset.IPAddress = $net.IPAddress
+            $nic = Get-NetAdapter -InterfaceIndex $net.InterfaceIndex -ErrorAction SilentlyContinue
+            if ($nic) {
+                $asset.Network_Adapter = $nic.InterfaceDescription
+                $asset.MACAddress = $nic.MacAddress
+            }
+        }
+    } catch {}
+
+    return [PSCustomObject]$asset
+}
+
 function Get-WindowsActivation {
     $result = @{
         Status = "Unknown"
@@ -1062,11 +1148,13 @@ $inputXML = @"
 
                 <!-- ROW 2: CONG CU IT HELPDESK -->
                 <StackPanel Grid.Row="1">
-                    <TextBlock Text="2. CONG CU HO TRO IT HELPDESK" Foreground="#94A3B8" FontSize="11" FontWeight="Bold" Margin="0,0,0,8"/>
+                    <TextBlock Text="2. CONG CU HO TRO IT HELPDESK &amp; QUAN LY TAI SAN" Foreground="#94A3B8" FontSize="11" FontWeight="Bold" Margin="0,0,0,8"/>
                     <WrapPanel>
-                        <Button x:Name="btnCleanTemp" Content="DON DEP TEMP &amp; DNS" Width="170" Height="38" Background="#10B981" Foreground="White" FontWeight="Bold" BorderThickness="0" Margin="0,0,10,5" Cursor="Hand"/>
-                        <Button x:Name="btnActivateKey" Content="KICH HOAT KEY MOI" Width="160" Height="38" Background="#8B5CF6" Foreground="White" FontWeight="Bold" BorderThickness="0" Margin="0,0,10,5" Cursor="Hand"/>
-                        <Button x:Name="btnExportReport" Content="XUAT BAO CAO HTML" Width="160" Height="38" Background="#06B6D4" Foreground="White" FontWeight="Bold" BorderThickness="0" Margin="0,0,10,5" Cursor="Hand"/>
+                        <Button x:Name="btnCleanTemp" Content="DON DEP TEMP &amp; DNS" Width="160" Height="38" Background="#10B981" Foreground="White" FontWeight="Bold" BorderThickness="0" Margin="0,0,10,5" Cursor="Hand"/>
+                        <Button x:Name="btnActivateKey" Content="KICH HOAT KEY MOI" Width="150" Height="38" Background="#8B5CF6" Foreground="White" FontWeight="Bold" BorderThickness="0" Margin="0,0,10,5" Cursor="Hand"/>
+                        <Button x:Name="btnAssetInfo" Content="THONG TIN TAI SAN" Width="160" Height="38" Background="#EC4899" Foreground="White" FontWeight="Bold" BorderThickness="0" Margin="0,0,10,5" Cursor="Hand"/>
+                        <Button x:Name="btnExportAsset" Content="XUAT TAI SAN (CSV)" Width="150" Height="38" Background="#14B8A6" Foreground="White" FontWeight="Bold" BorderThickness="0" Margin="0,0,10,5" Cursor="Hand"/>
+                        <Button x:Name="btnExportReport" Content="XUAT BAO CAO HTML" Width="150" Height="38" Background="#06B6D4" Foreground="White" FontWeight="Bold" BorderThickness="0" Margin="0,0,10,5" Cursor="Hand"/>
                     </WrapPanel>
                 </StackPanel>
             </Grid>
@@ -1105,6 +1193,8 @@ $btnUninstallCracks = $Window.FindName("btnUninstallCracks")
 $btnUninstallOffice = $Window.FindName("btnUninstallOffice")
 $btnCleanTemp = $Window.FindName("btnCleanTemp")
 $btnActivateKey = $Window.FindName("btnActivateKey")
+$btnAssetInfo = $Window.FindName("btnAssetInfo")
+$btnExportAsset = $Window.FindName("btnExportAsset")
 $btnExportReport = $Window.FindName("btnExportReport")
 $btnCopyLog = $Window.FindName("btnCopyLog")
 $btnClearLog = $Window.FindName("btnClearLog")
@@ -1296,6 +1386,68 @@ $btnExportReport.Add_Click({
         Start-Process $filePath -ErrorAction SilentlyContinue
     } catch {
         [System.Windows.MessageBox]::Show("Loi khi xuat bao cao HTML: $($_.Exception.Message)", "Loi", "OK", "Error")
+    }
+})
+
+$btnAssetInfo.Add_Click({
+    $btnAssetInfo.IsEnabled = $false
+    $txtLog.Text = "Dang thu thap thong tin tai san IT xin vui long cho...`n"
+    Invoke-UIAsync {
+        $asset = Get-FullComputerAssetInfo
+        $global:lastAssetInfo = $asset
+
+        $sb = New-Object System.Text.StringBuilder
+        $sb.AppendLine("==================================================================================") | Out-Null
+        $sb.AppendLine("         THONG TIN TAI SAN THIET BI IT (IT ASSET AUDIT REPORT)                     ") | Out-Null
+        $sb.AppendLine("==================================================================================") | Out-Null
+        $sb.AppendLine("Thoi gian thu thap : $($asset.AuditTimestamp)") | Out-Null
+        $sb.AppendLine("Ten may tinh       : $($asset.ComputerName)") | Out-Null
+        $sb.AppendLine("----------------------------------------------------------------------------------") | Out-Null
+        $sb.AppendLine() | Out-Null
+        $sb.AppendLine("[1] THONG TIN THIET BI & SERIAL NUMBER:") | Out-Null
+        $sb.AppendLine(" -> Ten may tinh    : $($asset.ComputerName)") | Out-Null
+        $sb.AppendLine(" -> Nha san xuat    : $($asset.Manufacturer)") | Out-Null
+        $sb.AppendLine(" -> Model thiet bi  : $($asset.Model)") | Out-Null
+        $sb.AppendLine(" -> Serial Number   : $($asset.SerialNumber)") | Out-Null
+        $sb.AppendLine(" -> Mainboard Serial: $($asset.MotherboardSerial)") | Out-Null
+        $sb.AppendLine() | Out-Null
+        $sb.AppendLine("[2] HE DIEU HANH & NGUOI DUNG:") | Out-Null
+        $sb.AppendLine(" -> Ten he dieu hanh: $($asset.OSName) ($($asset.OSArchitecture))") | Out-Null
+        $sb.AppendLine(" -> Phien ban OS    : $($asset.OSVersion)") | Out-Null
+        $sb.AppendLine(" -> Ngay cai dat OS : $($asset.OSInstallDate)") | Out-Null
+        $sb.AppendLine(" -> Nguoi dung      : $($asset.UserDomain)\$($asset.CurrentUser)") | Out-Null
+        $sb.AppendLine() | Out-Null
+        $sb.AppendLine("[3] CAU HINH PHAN CUNG:") | Out-Null
+        $sb.AppendLine(" -> Vi xu ly (CPU)  : $($asset.CPU) ($($asset.CPUCoresThreads))") | Out-Null
+        $sb.AppendLine(" -> Bo nho RAM      : $($asset.RAM_Total_GB) GB ($($asset.RAM_Slots_Used))") | Out-Null
+        $sb.AppendLine(" -> O đia luu trup  : $($asset.Disk_Summary)") | Out-Null
+        $sb.AppendLine() | Out-Null
+        $sb.AppendLine("[4] THONG TIN MANG:") | Out-Null
+        $sb.AppendLine(" -> Card mang (NIC) : $($asset.Network_Adapter)") | Out-Null
+        $sb.AppendLine(" -> Dia chi IP      : $($asset.IPAddress)") | Out-Null
+        $sb.AppendLine(" -> Dia chi MAC     : $($asset.MACAddress)") | Out-Null
+        $sb.AppendLine() | Out-Null
+        $sb.AppendLine("==================================================================================") | Out-Null
+
+        $txtLog.Text = $sb.ToString()
+        $btnAssetInfo.IsEnabled = $true
+    }
+})
+
+$btnExportAsset.Add_Click({
+    if (-not $global:lastAssetInfo) {
+        $global:lastAssetInfo = Get-FullComputerAssetInfo
+    }
+    try {
+        $csvPath = Join-Path $env:USERPROFILE "Desktop\TaiSan_IT_$($global:lastAssetInfo.ComputerName).csv"
+        $jsonPath = Join-Path $env:USERPROFILE "Desktop\TaiSan_IT_$($global:lastAssetInfo.ComputerName).json"
+        
+        $global:lastAssetInfo | Export-Csv -Path $csvPath -NoTypeInformation -Encoding utf8 -Force
+        $global:lastAssetInfo | ConvertTo-Json | Set-Content -Path $jsonPath -Encoding utf8 -Force
+        
+        [System.Windows.MessageBox]::Show("Da xuat thong tin tai san thanh cong ra Desktop:`n* CSV: $csvPath`n* JSON: $jsonPath", "Xuat Tai San Thanh Cong", "OK", "Information")
+    } catch {
+        [System.Windows.MessageBox]::Show("Loi khi xuat file tai san: $($_.Exception.Message)", "Loi", "OK", "Error")
     }
 })
 

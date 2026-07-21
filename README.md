@@ -49,6 +49,12 @@ Xoa file rac Windows Temp, User Temp, Prefetch, SoftwareDistribution, xoa DNS Ca
 irm "https://raw.githubusercontent.com/huynhtam03/win-license-tools/main/Clean-SystemTemp.ps1" -Headers @{"Cache-Control"="no-cache"} | iex
 ```
 
+#### 📦 F. Chi Thu Thap Thong Tin Tai San IT & Xuat CSV/JSON
+Thu thap Serial Number, Mainboard, CPU, RAM, Disk, IP, MAC va tu dong xuat file CSV & JSON len Desktop de nhap lieu vao phan mem Quan ly tai san (Snipe-IT, GLPI, Excel...).
+```powershell
+irm "https://raw.githubusercontent.com/huynhtam03/win-license-tools/main/Get-ComputerAssetInfo.ps1" -Headers @{"Cache-Control"="no-cache"} | iex
+```
+
 ---
 
 ## ✨ TINH NANG NOI BAT
