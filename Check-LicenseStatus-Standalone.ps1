@@ -46,42 +46,65 @@ function Get-SystemInfoSummary {
 
 function Get-FullComputerAssetInfo {
     $asset = [ordered]@{
-        ComputerName      = $env:COMPUTERNAME
-        Manufacturer      = "Khong xac dinh"
-        Model             = "Khong xac dinh"
-        SerialNumber      = "Khong xac dinh"
-        MotherboardSerial = "Khong xac dinh"
-        OSName            = "Khong xac dinh"
-        OSVersion         = "Khong xac dinh"
-        OSArchitecture    = "Khong xac dinh"
-        OSInstallDate     = "Khong xac dinh"
-        CurrentUser       = $env:USERNAME
-        UserDomain        = $env:USERDOMAIN
-        CPU               = "Khong xac dinh"
-        CPUCoresThreads   = "Khong xac dinh"
-        RAM_Total_GB      = 0
-        RAM_Slots_Used    = "Khong xac dinh"
-        Disk_Summary      = "Khong xac dinh"
-        Network_Adapter   = "Khong xac dinh"
-        IPAddress         = "Khong xac dinh"
-        MACAddress        = "Khong xac dinh"
-        AuditTimestamp    = (Get-Date -Format 'dd/MM/yyyy HH:mm:ss')
+        ComputerName            = $env:COMPUTERNAME
+        SystemManufacturer      = "Khong xac dinh"
+        SystemModel             = "Khong xac dinh"
+        SystemUUID              = "Khong xac dinh"
+        BIOSSerialNumber        = "Khong xac dinh"
+        BIOSVersion             = "Khong xac dinh"
+        MotherboardManufacturer = "Khong xac dinh"
+        MotherboardProduct      = "Khong xac dinh"
+        MotherboardSerial       = "Khong xac dinh"
+        
+        OSName                  = "Khong xac dinh"
+        OSVersion               = "Khong xac dinh"
+        OSArchitecture          = "Khong xac dinh"
+        OSInstallDate           = "Khong xac dinh"
+        CurrentUser             = $env:USERNAME
+        UserDomain              = $env:USERDOMAIN
+        
+        CPU                     = "Khong xac dinh"
+        CPUCoresThreads         = "Khong xac dinh"
+        GPU                     = "Khong xac dinh"
+        GPUVRAM_GB              = "Khong xac dinh"
+        
+        TotalRAM_GB             = 0
+        RAMSlotsCount           = 0
+        RAMSticksDetail         = "Khong xac dinh"
+        
+        TotalStorageCapacityGB  = 0
+        TotalFreeStorageGB      = 0
+        PhysicalDisksDetail     = "Khong xac dinh"
+        LogicalDrivesDetail     = "Khong xac dinh"
+        
+        NetworkAdapter          = "Khong xac dinh"
+        IPAddress               = "Khong xac dinh"
+        MACAddress              = "Khong xac dinh"
+        AuditTimestamp          = (Get-Date -Format 'dd/MM/yyyy HH:mm:ss')
     }
 
     try {
         $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
         if ($cs) {
-            $asset.Manufacturer = $cs.Manufacturer
-            $asset.Model = $cs.Model
+            $asset.SystemManufacturer = $cs.Manufacturer
+            $asset.SystemModel = $cs.Model
+        }
+
+        $csp = Get-CimInstance -ClassName Win32_ComputerSystemProduct -ErrorAction SilentlyContinue
+        if ($csp) {
+            $asset.SystemUUID = $csp.UUID
         }
 
         $bios = Get-CimInstance -ClassName Win32_BIOS -ErrorAction SilentlyContinue
         if ($bios) {
-            $asset.SerialNumber = $bios.SerialNumber
+            $asset.BIOSSerialNumber = $bios.SerialNumber
+            $asset.BIOSVersion = "$($bios.Manufacturer) $($bios.SMBIOSBIOSVersion)"
         }
 
         $baseboard = Get-CimInstance -ClassName Win32_BaseBoard -ErrorAction SilentlyContinue
         if ($baseboard) {
+            $asset.MotherboardManufacturer = $baseboard.Manufacturer
+            $asset.MotherboardProduct = $baseboard.Product
             $asset.MotherboardSerial = $baseboard.SerialNumber
         }
 
@@ -99,21 +122,64 @@ function Get-FullComputerAssetInfo {
             $asset.CPUCoresThreads = "$($cpu.NumberOfCores) Cores / $($cpu.NumberOfLogicalProcessors) Threads"
         }
 
+        $gpus = Get-CimInstance -ClassName Win32_VideoController -ErrorAction SilentlyContinue
+        if ($gpus) {
+            $gpuNames = @()
+            $vramGBs = @()
+            foreach ($g in $gpus) {
+                $gpuNames += $g.Name
+                if ($g.AdapterRAM) {
+                    $vramGBs += "$([math]::Round($g.AdapterRAM / 1GB, 2)) GB"
+                }
+            }
+            $asset.GPU = $gpuNames -join " | "
+            $asset.GPUVRAM_GB = if ($vramGBs.Count -gt 0) { $vramGBs -join " | " } else { "N/A" }
+        }
+
         $ramChips = Get-CimInstance -ClassName Win32_PhysicalMemory -ErrorAction SilentlyContinue
         if ($ramChips) {
             $totalBytes = ($ramChips | Measure-Object -Property Capacity -Sum).Sum
-            $asset.RAM_Total_GB = [math]::Round($totalBytes / 1GB, 2)
-            $asset.RAM_Slots_Used = "$($ramChips.Count) Khe RAM"
+            $asset.TotalRAM_GB = [math]::Round($totalBytes / 1GB, 2)
+            $asset.RAMSlotsCount = $ramChips.Count
+            
+            $ramDetailsList = @()
+            foreach ($r in $ramChips) {
+                $chipGB = [math]::Round($r.Capacity / 1GB, 2)
+                $speed = if ($r.Speed) { "$($r.Speed)MHz" } else { "" }
+                $mfg = if ($r.Manufacturer) { $r.Manufacturer.Trim() } else { "" }
+                $bank = if ($r.DeviceLocator) { $r.DeviceLocator } else { "Slot" }
+                $ramDetailsList += "[$($bank): $chipGB GB $speed $mfg]"
+            }
+            $asset.RAMSticksDetail = $ramDetailsList -join " | "
         }
 
-        $disks = Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction SilentlyContinue
-        if ($disks) {
-            $diskSummaryList = @()
-            foreach ($d in $disks) {
+        $physDisks = Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction SilentlyContinue
+        if ($physDisks) {
+            $pDiskList = @()
+            $totalDiskBytes = 0
+            foreach ($d in $physDisks) {
                 $gb = [math]::Round($d.Size / 1GB, 2)
-                $diskSummaryList += "$($d.Model) ($gb GB, SN: $($d.SerialNumber))"
+                $totalDiskBytes += $d.Size
+                $pDiskList += "$($d.Model) ($gb GB - SN: $($d.SerialNumber))"
             }
-            $asset.Disk_Summary = $diskSummaryList -join " | "
+            $asset.TotalStorageCapacityGB = [math]::Round($totalDiskBytes / 1GB, 2)
+            $asset.PhysicalDisksDetail = $pDiskList -join " | "
+        }
+
+        $logDrives = Get-CimInstance -ClassName Win32_LogicalDisk -Filter "DriveType = 3" -ErrorAction SilentlyContinue
+        if ($logDrives) {
+            $lDriveList = @()
+            $totalFreeBytes = 0
+            foreach ($ld in $logDrives) {
+                $totalGB = [math]::Round($ld.Size / 1GB, 2)
+                $freeGB = [math]::Round($ld.FreeSpace / 1GB, 2)
+                $usedGB = [math]::Round(($ld.Size - $ld.FreeSpace) / 1GB, 2)
+                $totalFreeBytes += $ld.FreeSpace
+                $percentFree = [math]::Round(($ld.FreeSpace / $ld.Size) * 100, 1)
+                $lDriveList += "[$($ld.DeviceID) Tong: $totalGB GB | Dung: $usedGB GB | Trong: $freeGB GB ($percentFree% trong)]"
+            }
+            $asset.TotalFreeStorageGB = [math]::Round($totalFreeBytes / 1GB, 2)
+            $asset.LogicalDrivesDetail = $lDriveList -join " | "
         }
 
         $net = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" } | Select-Object -First 1
@@ -121,7 +187,7 @@ function Get-FullComputerAssetInfo {
             $asset.IPAddress = $net.IPAddress
             $nic = Get-NetAdapter -InterfaceIndex $net.InterfaceIndex -ErrorAction SilentlyContinue
             if ($nic) {
-                $asset.Network_Adapter = $nic.InterfaceDescription
+                $asset.NetworkAdapter = $nic.InterfaceDescription
                 $asset.MACAddress = $nic.MacAddress
             }
         }
@@ -1391,41 +1457,50 @@ $btnExportReport.Add_Click({
 
 $btnAssetInfo.Add_Click({
     $btnAssetInfo.IsEnabled = $false
-    $txtLog.Text = "Dang thu thap thong tin tai san IT xin vui long cho...`n"
+    $txtLog.Text = "Dang thu thap thong tin tai san IT chi tiet xin vui long cho...`n"
     Invoke-UIAsync {
         $asset = Get-FullComputerAssetInfo
         $global:lastAssetInfo = $asset
 
         $sb = New-Object System.Text.StringBuilder
         $sb.AppendLine("==================================================================================") | Out-Null
-        $sb.AppendLine("         THONG TIN TAI SAN THIET BI IT (IT ASSET AUDIT REPORT)                     ") | Out-Null
+        $sb.AppendLine("         THONG TIN TAI SAN THIET BI IT CHI TIET (DEEP IT ASSET AUDIT REPORT)       ") | Out-Null
         $sb.AppendLine("==================================================================================") | Out-Null
         $sb.AppendLine("Thoi gian thu thap : $($asset.AuditTimestamp)") | Out-Null
         $sb.AppendLine("Ten may tinh       : $($asset.ComputerName)") | Out-Null
         $sb.AppendLine("----------------------------------------------------------------------------------") | Out-Null
         $sb.AppendLine() | Out-Null
-        $sb.AppendLine("[1] THONG TIN THIET BI & SERIAL NUMBER:") | Out-Null
-        $sb.AppendLine(" -> Ten may tinh    : $($asset.ComputerName)") | Out-Null
-        $sb.AppendLine(" -> Nha san xuat    : $($asset.Manufacturer)") | Out-Null
-        $sb.AppendLine(" -> Model thiet bi  : $($asset.Model)") | Out-Null
-        $sb.AppendLine(" -> Serial Number   : $($asset.SerialNumber)") | Out-Null
-        $sb.AppendLine(" -> Mainboard Serial: $($asset.MotherboardSerial)") | Out-Null
+        $sb.AppendLine("[1] HE THONG & BO MACH CHU (SYSTEM & MAINBOARD):") | Out-Null
+        $sb.AppendLine(" -> Ten may tinh     : $($asset.ComputerName)") | Out-Null
+        $sb.AppendLine(" -> Nha san xuat     : $($asset.SystemManufacturer)") | Out-Null
+        $sb.AppendLine(" -> Model thiet bi   : $($asset.SystemModel)") | Out-Null
+        $sb.AppendLine(" -> Serial (Service): $($asset.BIOSSerialNumber)") | Out-Null
+        $sb.AppendLine(" -> System UUID      : $($asset.SystemUUID)") | Out-Null
+        $sb.AppendLine(" -> Mainboard Hang   : $($asset.MotherboardManufacturer)") | Out-Null
+        $sb.AppendLine(" -> Mainboard Model  : $($asset.MotherboardProduct)") | Out-Null
+        $sb.AppendLine(" -> Mainboard Serial : $($asset.MotherboardSerial)") | Out-Null
+        $sb.AppendLine(" -> BIOS Version     : $($asset.BIOSVersion)") | Out-Null
         $sb.AppendLine() | Out-Null
         $sb.AppendLine("[2] HE DIEU HANH & NGUOI DUNG:") | Out-Null
-        $sb.AppendLine(" -> Ten he dieu hanh: $($asset.OSName) ($($asset.OSArchitecture))") | Out-Null
-        $sb.AppendLine(" -> Phien ban OS    : $($asset.OSVersion)") | Out-Null
-        $sb.AppendLine(" -> Ngay cai dat OS : $($asset.OSInstallDate)") | Out-Null
-        $sb.AppendLine(" -> Nguoi dung      : $($asset.UserDomain)\$($asset.CurrentUser)") | Out-Null
+        $sb.AppendLine(" -> Ten he dieu hanh : $($asset.OSName) ($($asset.OSArchitecture))") | Out-Null
+        $sb.AppendLine(" -> Phien ban OS     : $($asset.OSVersion)") | Out-Null
+        $sb.AppendLine(" -> Ngay cai dat OS  : $($asset.OSInstallDate)") | Out-Null
+        $sb.AppendLine(" -> Nguoi dung       : $($asset.UserDomain)\$($asset.CurrentUser)") | Out-Null
         $sb.AppendLine() | Out-Null
-        $sb.AppendLine("[3] CAU HINH PHAN CUNG:") | Out-Null
-        $sb.AppendLine(" -> Vi xu ly (CPU)  : $($asset.CPU) ($($asset.CPUCoresThreads))") | Out-Null
-        $sb.AppendLine(" -> Bo nho RAM      : $($asset.RAM_Total_GB) GB ($($asset.RAM_Slots_Used))") | Out-Null
-        $sb.AppendLine(" -> O đia luu trup  : $($asset.Disk_Summary)") | Out-Null
+        $sb.AppendLine("[3] BO NHO RAM & CARD DO HOA (MEMORY & GPU):") | Out-Null
+        $sb.AppendLine(" -> Tong RAM he thong: $($asset.TotalRAM_GB) GB ($($asset.RAMSlotsCount) thanh RAM)") | Out-Null
+        $sb.AppendLine(" -> Chi tiet thanh RAM: $($asset.RAMSticksDetail)") | Out-Null
+        $sb.AppendLine(" -> Card do hoa (GPU): $($asset.GPU) (VRAM: $($asset.GPUVRAM_GB))") | Out-Null
         $sb.AppendLine() | Out-Null
-        $sb.AppendLine("[4] THONG TIN MANG:") | Out-Null
-        $sb.AppendLine(" -> Card mang (NIC) : $($asset.Network_Adapter)") | Out-Null
-        $sb.AppendLine(" -> Dia chi IP      : $($asset.IPAddress)") | Out-Null
-        $sb.AppendLine(" -> Dia chi MAC     : $($asset.MACAddress)") | Out-Null
+        $sb.AppendLine("[4] CHI TIET OU DIA & PHAN VUNG (STORAGE & DRIVES):") | Out-Null
+        $sb.AppendLine(" -> Tong dung luong o: $($asset.TotalStorageCapacityGB) GB (Trong: $($asset.TotalFreeStorageGB) GB)") | Out-Null
+        $sb.AppendLine(" -> O đia vat ly      : $($asset.PhysicalDisksDetail)") | Out-Null
+        $sb.AppendLine(" -> Phan vung o đia   : $($asset.LogicalDrivesDetail)") | Out-Null
+        $sb.AppendLine() | Out-Null
+        $sb.AppendLine("[5] THONG TIN MANG (NETWORK):") | Out-Null
+        $sb.AppendLine(" -> Card mang (NIC)  : $($asset.NetworkAdapter)") | Out-Null
+        $sb.AppendLine(" -> Dia chi IP       : $($asset.IPAddress)") | Out-Null
+        $sb.AppendLine(" -> Dia chi MAC      : $($asset.MACAddress)") | Out-Null
         $sb.AppendLine() | Out-Null
         $sb.AppendLine("==================================================================================") | Out-Null
 
